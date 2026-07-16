@@ -1,0 +1,43 @@
+name: Publish v0.2.0 to PyPI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pypi-publish:
+    name: Publish exact v0.2.0 artifacts
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mnemoir-provenance
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download exact draft-release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download v0.2.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'mnemoir_provenance-0.2.0-py3-none-any.whl' \
+            --pattern 'mnemoir_provenance-0.2.0.tar.gz' \
+            --dir dist
+
+      - name: Verify artifact identity
+        run: |
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 2
+          printf '%s  %s\n' \
+            '81eedc504556437d4783263a223d89cd6890c9c25cb3c8231a07d97064fb73ae' \
+            'dist/mnemoir_provenance-0.2.0-py3-none-any.whl' \
+            '6f380812fe2cd1b6657b5665ae3c1d1f02f9d76d0ac610edc972c4a593acbe14' \
+            'dist/mnemoir_provenance-0.2.0.tar.gz' | sha256sum --check --strict
+
+      - name: Publish to PyPI with OIDC
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        with:
+          packages-dir: dist/
