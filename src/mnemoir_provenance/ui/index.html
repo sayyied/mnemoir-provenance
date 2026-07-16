@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230d1214'/%3E%3Cpath d='M7 8h18v2H7zm0 6h18v2H7zm0 6h12v2H7z' fill='%2388c5d8'/%3E%3C/svg%3E">
+  <title>Mnemoir Provenance — Provenance workbench</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#workspace">Skip to workspace</a>
+<header class="masthead">
+  <div class="identity">
+    <span class="product-name">Mnemoir Provenance</span>
+    <span class="product-role">Provenance workbench</span>
+  </div>
+  <div id="connection" class="connection" role="status" aria-live="polite"><span aria-hidden="true"></span>Connecting</div>
+</header>
+<div class="shell">
+  <nav aria-label="Primary" class="route-nav">
+    <a href="#home" data-route="home"><span aria-hidden="true">01</span><b>Home</b><small>Attention</small></a>
+    <a href="#recall" data-route="recall"><span aria-hidden="true">02</span><b>Recall</b><small>Evidence</small></a>
+    <a href="#memory" data-route="memory"><span aria-hidden="true">03</span><b>Memory</b><small>Curation</small></a>
+    <a href="#council" data-route="council"><span aria-hidden="true">04</span><b>Council</b><small>Autonomy</small></a>
+    <a href="#system" data-route="system"><span aria-hidden="true">05</span><b>System</b><small>Posture</small></a>
+  </nav>
+  <main id="workspace" tabindex="-1">
+    <header class="route-head">
+      <div class="route-code" id="route-code">ATTENTION BRIEF / 01</div>
+      <div class="route-heading"><h1 id="route-title">What needs judgment now</h1><p id="route-description">Exceptional conditions lead. Routine posture stays quiet.</p></div>
+      <button id="refresh" class="quiet-action" type="button" aria-label="Refresh current route">Refresh this view</button>
+    </header>
+
+    <section id="recall-tools" class="toolstrip recall-tool" hidden aria-labelledby="recall-form-title">
+      <form id="recall-form">
+        <div><h2 id="recall-form-title">Question on record</h2><label class="sr-only" for="recall-query">Recall query</label><textarea id="recall-query" name="query" rows="2" maxlength="1000" required autocomplete="off">Council memory</textarea></div>
+        <button class="primary-action">Run cited recall</button>
+      </form>
+      <p>Query scope only. Global refresh remains separate.</p>
+    </section>
+
+    <section id="memory-tools" class="toolstrip" hidden aria-labelledby="proposal-form-title">
+      <details><summary id="proposal-form-title">Create a sourced proposal</summary>
+        <form id="proposal-form" class="form-grid">
+          <label>Title<input name="title" maxlength="500" required></label>
+          <label>Summary<textarea name="summary" maxlength="2000" required></textarea></label>
+          <label class="wide">Body<textarea name="body" maxlength="20000" required></textarea></label>
+          <label>Evidence IDs <span class="hint">comma-separated</span><input name="evidence_ids"></label>
+          <label>Source event IDs <span class="hint">comma-separated</span><input name="source_event_ids"></label>
+          <button class="wide primary-action">Create sourced proposal</button>
+        </form>
+      </details>
+    </section>
+
+    <section id="system-tools" class="toolstrip system-controls" hidden aria-labelledby="service-controls-title">
+      <div><h2 id="service-controls-title">Local runtime controls</h2><p>Consequential actions are confirmed and receipted.</p></div>
+      <div class="actions"><button data-action="service.start" data-confirm="true">Start…</button><button data-action="service.stop" data-confirm="true">Stop…</button><button data-action="service.restart" data-confirm="true">Restart…</button></div>
+    </section>
+
+    <div id="state" class="state" role="status" aria-live="polite" aria-atomic="true">Loading canonical local records…</div>
+    <section id="content" aria-label="Current operator data"></section>
+  </main>
+</div>
+
+<dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-copy">
+  <form method="dialog">
+    <div class="dialog-kicker">Consequential action</div>
+    <h2 id="confirm-title">Confirm action</h2><p id="confirm-copy"></p>
+    <label for="confirm-reason">Reason <span class="hint">optional</span></label><textarea id="confirm-reason"></textarea>
+    <div class="dialog-actions"><button value="cancel">Cancel</button><button id="confirm-submit" value="confirm" class="danger">Confirm action</button></div>
+  </form>
+</dialog>
+<dialog id="drawer" class="drawer" aria-labelledby="drawer-title">
+  <header><div><div class="dialog-kicker">Canonical record</div><h2 id="drawer-title">Record detail</h2></div><button value="close" formmethod="dialog" aria-label="Close detail">Close</button></header>
+  <div id="drawer-content"></div>
+</dialog>
+<div id="announcer" class="sr-only" aria-live="assertive"></div>
+<noscript>This operator application requires JavaScript to load canonical local records.</noscript>
+</body>
+</html>

@@ -1,0 +1,1 @@
+"""Installed, versioned SQL resources for Mnemoir Provenance."""

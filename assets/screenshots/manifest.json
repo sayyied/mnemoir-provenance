@@ -1,0 +1,44 @@
+{
+  "schema": "mnemoir-ui-screenshot-evidence-v3",
+  "product": "Mnemoir Provenance",
+  "version": "0.2.0-rc.1",
+  "artifact": {
+    "distribution": "mnemoir_provenance-0.2.0rc1-py3-none-any.whl",
+    "sha256": "4923d9c8a29a74de4d7340d403b8a9bd52df0a1e525a19e5b35fae59cf2fc951",
+    "hermes_required": false
+  },
+  "ui_assets": {
+    "src/mnemoir_provenance/ui/index.html": "677f46af987203e56378c61bc4af673a4b4d5b672f4cd4678b4fbe920177332d",
+    "src/mnemoir_provenance/ui/app.css": "79ece8c0fb3c2cf97fa0230278e06806b53d3c7a8786040f419a87d321b6b52a",
+    "src/mnemoir_provenance/ui/app.js": "acb771b85035262a71c735c197527c907d2dc7548fa79a9c4dbb9134920ced17"
+  },
+  "fixture": {
+    "id": "mnemoir-production-visual-fixture-v1",
+    "digest": "7e9eccf0ad5d4ef1f084422ababb7c691b94b24271b3221e221713dda661f7da",
+    "classification": "deterministic synthetic source/evidence/proposal records; no private records"
+  },
+  "runtime": "exact installed wheel; loopback HTTP only",
+  "browser": "Chromium via Playwright",
+  "installed_evidence": {
+    "private_screenshot_count": 17,
+    "manifest_sha256": "baeb80abd94ecc50fd798044f6c91c804c6db1d753d7398b330c11703a34231a"
+  },
+  "checks": {
+    "unexpected_successful_path_console_errors": 0,
+    "mobile_horizontal_overflow": false,
+    "zoom_200_effective_viewport_overflow": false,
+    "cited_recall_observed": true,
+    "populated_recall_result_count": 3,
+    "degraded_recall_zero_citations": true,
+    "healthy_home_actionable_count": 0,
+    "healthy_home_degraded_source_count": 0,
+    "healthy_home_runtime_state": "running",
+    "empty_state_observed": true,
+    "confirmation_and_receipt_states_observed": true
+  },
+  "screenshots": [
+    {"path": "assets/screenshots/home-desktop.png", "sha256": "a84aa107671e3c1c341924598285c5623371bd6d198b3d15b6c3f9dccaf8e97a", "viewport": "1440x1000", "state": "home/approval-needed-attention"},
+    {"path": "assets/screenshots/recall-desktop.png", "sha256": "25245c4e1d3b0e396769e03e601dbfdf8becc3fed3352f831dc80c0a63e74d8e", "viewport": "1440x1000", "state": "recall/populated-three-citations"},
+    {"path": "assets/screenshots/memory-mobile.png", "sha256": "1b9f9a8c9b644205ad43a55cc82a6d6c69bc24f1fa2ee30abaf76431b533f028", "viewport": "390x844", "state": "memory/proposal-review-responsive"}
+  ]
+}
