@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 errors = []
-version = "0.2.0-rc.1"
+version = "0.2.0"
 if version not in (ROOT / "pyproject.toml").read_text():
     errors.append("version mismatch")
 for required in ["README.md", "SECURITY.md", "SOURCE_PROVENANCE.json", "docs/index.md", "src/mnemoir_provenance/resources/0001_initial_schema.sql"]:
