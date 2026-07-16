@@ -1,0 +1,31 @@
+{
+  "missing_sources": [
+    "honcho"
+  ],
+  "query": "What did we decide about Council memory?",
+  "results": [
+    {
+      "confidence": 0.92,
+      "freshness": "current",
+      "sources": [
+        "session:example:turn:42"
+      ],
+      "summary": "Council memory must be local-first, source-grounded, auditable, and fail-closed.",
+      "why_returned": [
+        "semantic_match",
+        "high_salience"
+      ]
+    }
+  ],
+  "source_coverage": [
+    {
+      "source_id": "session_search",
+      "status": "healthy"
+    },
+    {
+      "source_id": "honcho",
+      "status": "unavailable"
+    }
+  ],
+  "status": "partial"
+}

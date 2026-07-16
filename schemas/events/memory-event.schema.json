@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "proposed",
+        "created",
+        "updated",
+        "tombstoned",
+        "recalled"
+      ]
+    },
+    "confidence": {
+      "type": "number"
+    },
+    "memory_id": {
+      "type": "string"
+    },
+    "source_pointers": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "degraded"
+      ]
+    }
+  },
+  "required": [
+    "memory_id",
+    "action",
+    "status",
+    "source_pointers"
+  ],
+  "type": "object"
+}
