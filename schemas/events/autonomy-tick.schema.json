@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "approval_class": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "objective": {
+      "type": "string"
+    },
+    "receipt_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "denied",
+        "paused"
+      ]
+    },
+    "tick_id": {
+      "type": "string"
+    },
+    "trigger": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "tick_id",
+    "trigger",
+    "objective",
+    "approval_class",
+    "status",
+    "receipt_id"
+  ],
+  "type": "object"
+}

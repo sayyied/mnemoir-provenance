@@ -1,0 +1,8 @@
+flowchart LR
+  H[Host application] -->|events, scope, policy| C[Mnemoir core]
+  S[Controlled sources] -->|raw events + evidence| C
+  C -->|canonical records| D[(Local SQLite)]
+  C -->|citations + coverage| H
+  C -->|derived, no writeback| P[Markdown projection]
+  C -.->|scoped authorization| W[Working-memory adapter]
+  W -->|receipt + read-back| C

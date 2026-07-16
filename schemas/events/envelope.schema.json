@@ -1,0 +1,32 @@
+{
+  "$id": "https://mnemoir-provenance.local/schemas/events/envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actor_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "created_at",
+    "actor_id",
+    "payload"
+  ],
+  "type": "object"
+}
