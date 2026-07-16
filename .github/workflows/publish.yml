@@ -22,11 +22,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p dist
-          gh release download v0.2.0 \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'mnemoir_provenance-0.2.0-py3-none-any.whl' \
-            --pattern 'mnemoir_provenance-0.2.0.tar.gz' \
-            --dir dist
+          gh api "repos/$GITHUB_REPOSITORY/releases/assets/479736052" \
+            --header 'Accept: application/octet-stream' \
+            > dist/mnemoir_provenance-0.2.0-py3-none-any.whl
+          gh api "repos/$GITHUB_REPOSITORY/releases/assets/479736056" \
+            --header 'Accept: application/octet-stream' \
+            > dist/mnemoir_provenance-0.2.0.tar.gz
 
       - name: Verify artifact identity
         run: |
