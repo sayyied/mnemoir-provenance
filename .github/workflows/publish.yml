@@ -17,17 +17,16 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Download exact draft-release artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download exact staged artifacts
         run: |
           mkdir -p dist
-          gh api "repos/$GITHUB_REPOSITORY/releases/assets/479736052" \
-            --header 'Accept: application/octet-stream' \
-            > dist/mnemoir_provenance-0.2.0-py3-none-any.whl
-          gh api "repos/$GITHUB_REPOSITORY/releases/assets/479736056" \
-            --header 'Accept: application/octet-stream' \
-            > dist/mnemoir_provenance-0.2.0.tar.gz
+          base="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/301a3d308e5b9de5e2324f5ea165af61309a6efb/dist"
+          curl --fail --silent --show-error --location --retry 3 \
+            "$base/mnemoir_provenance-0.2.0-py3-none-any.whl" \
+            --output dist/mnemoir_provenance-0.2.0-py3-none-any.whl
+          curl --fail --silent --show-error --location --retry 3 \
+            "$base/mnemoir_provenance-0.2.0.tar.gz" \
+            --output dist/mnemoir_provenance-0.2.0.tar.gz
 
       - name: Verify artifact identity
         run: |
