@@ -3131,7 +3131,7 @@ def run_benchmark(conn: sqlite3.Connection, *, suite: str = "smoke", fixture_roo
     conn.execute(
         """
         INSERT INTO benchmark_runs(run_id, dataset_id, suite_name, suite_version, app_version, schema_version, config_json, seed, started_at, status, notes)
-        VALUES (?, ?, ?, ?, '0.2.0', '0001', ?, ?, ?, 'running', ?)
+        VALUES (?, ?, ?, ?, '0.2.1', '0001', ?, ?, ?, 'running', ?)
         """,
         (run_id, dataset_id, suite, suite_version, json_dumps({"config": config, "environment": env}), seed, started, run_notes),
     )

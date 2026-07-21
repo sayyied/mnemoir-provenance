@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemoir-provenance"
-version = "0.2.0"
+version = "0.2.1"
 description = "Source-grounded memory for agents that learn over time."
 requires-python = ">=3.11"
 readme = "README.md"
@@ -29,8 +29,8 @@ Security = "https://github.com/sayyied/mnemoir-provenance/blob/main/SECURITY.md"
 "mnemoir" = "mnemoir_provenance.cli:main"
 
 [project.optional-dependencies]
-test = ["pytest>=8,<9"]
-release = ["build>=1.2,<2", "pytest>=8,<9"]
+test = ["pytest>=8,<9", "jsonschema>=4.21,<5"]
+release = ["build>=1.2,<2", "pytest>=8,<9", "jsonschema>=4.21,<5"]
 external-benchmark = ["beir>=2.2", "mteb>=2.15", "ir_datasets>=0.5.11"]
 hermes = ["hermes-agent>=0.18.2"]
 

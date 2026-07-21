@@ -22,12 +22,35 @@ def test_controlled_session_export_and_scope_boundary(tmp_path):
         assert str(tmp_path) not in json.dumps(result)
 
 
+def test_python_quickstart_owns_database_source_and_empty_path():
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "examples/quickstart/python_quickstart.py")],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["status"] == "ok"
+    assert payload["hermes_required"] is False
+    assert payload["database_owned_by_host"] is True
+    assert payload["source_scope_explicit"] is True
+    assert payload["cited_result_count"] >= 1
+    assert payload["empty_result_count"] == 0
+
+
 def test_non_hermes_consumer_script_has_no_hermes_dependency():
     proc = subprocess.run([sys.executable, str(ROOT / "examples/integrations/generic_cli_consumer.py"), "--self-test"], cwd=ROOT, text=True, capture_output=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     payload = json.loads(proc.stdout)
     assert payload["status"] == "ok"
     assert payload["hermes_required"] is False
+    assert payload["database_owned_by_host"] is True
+    assert payload["source_scope_explicit"] is True
+    assert payload["timeout_seconds"] == 30
+    assert payload["cited_result_count"] >= 1
+    assert payload["empty_result_count"] == 0
 
 
 def test_host_boundary_scope_denial_is_explicit_and_leak_safe(seeded_db):

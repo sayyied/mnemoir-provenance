@@ -1,0 +1,476 @@
+{
+  "$defs": {
+    "citation": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_pointer": {
+          "description": "Redacted relative pointer only; must not be absolute or contain traversal.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_pointer",
+        "content_hash"
+      ],
+      "type": "object"
+    },
+    "commonCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_count": {
+          "$ref": "#/$defs/count"
+        },
+        "raw_event_count": {
+          "$ref": "#/$defs/count"
+        },
+        "recall_result_count": {
+          "$ref": "#/$defs/count"
+        },
+        "source_count": {
+          "$ref": "#/$defs/count"
+        }
+      },
+      "required": [
+        "source_count",
+        "raw_event_count",
+        "evidence_count",
+        "recall_result_count"
+      ],
+      "type": "object"
+    },
+    "count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "failure": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "hermes_home_invalid",
+                      "default_storage_parent_unsafe",
+                      "custom_db_parent_missing",
+                      "package_not_importable_in_hermes_runtime",
+                      "profile_root_denied",
+                      "profile_fixture_empty",
+                      "profile_scope_invalid"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "exit_code": {
+                    "const": 2
+                  },
+                  "stage": {
+                    "const": "preflight"
+                  }
+                }
+              },
+              "ingest_committed": {
+                "const": false
+              },
+              "profile_id": {
+                "type": "null"
+              },
+              "recall_status": {
+                "const": "not_run"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "code": {
+                    "const": "profile_scope_invalid"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "profile_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "code": {
+                    "const": "bootstrap_ingest_failed"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "exit_code": {
+                    "const": 3
+                  },
+                  "stage": {
+                    "const": "ingest"
+                  }
+                }
+              },
+              "ingest_committed": {
+                "const": false
+              },
+              "recall_status": {
+                "const": "not_run"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "code": {
+                    "const": "bootstrap_recall_failed"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "exit_code": {
+                    "const": 4
+                  },
+                  "stage": {
+                    "const": "recall"
+                  }
+                }
+              },
+              "ingest_committed": {
+                "const": true
+              },
+              "recall_status": {
+                "const": "error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "code": {
+                    "const": "bootstrap_no_cited_match"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "counts": {
+                "properties": {
+                  "evidence_count": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "recall_result_count": {
+                    "const": 0
+                  }
+                }
+              },
+              "error": {
+                "properties": {
+                  "exit_code": {
+                    "const": 4
+                  },
+                  "stage": {
+                    "const": "recall"
+                  }
+                }
+              },
+              "ingest_committed": {
+                "const": true
+              },
+              "recall_status": {
+                "const": "no_cited_match"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "citations": {
+          "maxItems": 0,
+          "type": "array"
+        },
+        "config_mutated": {
+          "const": false
+        },
+        "counts": {
+          "$ref": "#/$defs/commonCounts"
+        },
+        "error": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "hermes_home_invalid",
+                "default_storage_parent_unsafe",
+                "custom_db_parent_missing",
+                "package_not_importable_in_hermes_runtime",
+                "profile_root_denied",
+                "profile_fixture_empty",
+                "profile_scope_invalid",
+                "bootstrap_ingest_failed",
+                "bootstrap_recall_failed",
+                "bootstrap_no_cited_match"
+              ]
+            },
+            "exit_code": {
+              "enum": [
+                2,
+                3,
+                4
+              ]
+            },
+            "message": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "stage": {
+              "enum": [
+                "preflight",
+                "ingest",
+                "recall"
+              ]
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "stage",
+            "exit_code"
+          ],
+          "type": "object"
+        },
+        "gateway_restart_performed": {
+          "const": false
+        },
+        "idempotent_replay": {
+          "type": "boolean"
+        },
+        "ingest_committed": {
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "bootstrap_profile"
+        },
+        "profile_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/profileId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "promotion_performed": {
+          "const": false
+        },
+        "provider_id": {
+          "const": "mnemoir_provenance"
+        },
+        "provider_selected": {
+          "const": false
+        },
+        "recall_status": {
+          "enum": [
+            "not_run",
+            "no_cited_match",
+            "error"
+          ]
+        },
+        "schema_version": {
+          "const": "mnemoir-plugin-bootstrap-profile-v1"
+        },
+        "source_family": {
+          "const": "hermes_profile_memory"
+        },
+        "status": {
+          "const": "error"
+        },
+        "writeback_performed": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "operation",
+        "provider_id",
+        "profile_id",
+        "source_family",
+        "counts",
+        "idempotent_replay",
+        "ingest_committed",
+        "recall_status",
+        "citations",
+        "error",
+        "config_mutated",
+        "provider_selected",
+        "gateway_restart_performed",
+        "promotion_performed",
+        "writeback_performed"
+      ],
+      "type": "object"
+    },
+    "profileId": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+      "type": "string"
+    },
+    "success": {
+      "additionalProperties": false,
+      "properties": {
+        "citations": {
+          "items": {
+            "$ref": "#/$defs/citation"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "config_mutated": {
+          "const": false
+        },
+        "counts": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/commonCounts"
+            },
+            {
+              "properties": {
+                "evidence_count": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "recall_result_count": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          ]
+        },
+        "gateway_restart_performed": {
+          "const": false
+        },
+        "idempotent_replay": {
+          "type": "boolean"
+        },
+        "ingest_committed": {
+          "const": true
+        },
+        "operation": {
+          "const": "bootstrap_profile"
+        },
+        "profile_id": {
+          "$ref": "#/$defs/profileId"
+        },
+        "promotion_performed": {
+          "const": false
+        },
+        "provider_id": {
+          "const": "mnemoir_provenance"
+        },
+        "provider_selected": {
+          "const": false
+        },
+        "recall_status": {
+          "const": "ok"
+        },
+        "schema_version": {
+          "const": "mnemoir-plugin-bootstrap-profile-v1"
+        },
+        "source_family": {
+          "const": "hermes_profile_memory"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "writeback_performed": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "operation",
+        "provider_id",
+        "profile_id",
+        "source_family",
+        "counts",
+        "idempotent_replay",
+        "ingest_committed",
+        "recall_status",
+        "citations",
+        "config_mutated",
+        "provider_selected",
+        "gateway_restart_performed",
+        "promotion_performed",
+        "writeback_performed"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://example.invalid/project-maintainers/mnemoir-provenance/blob/main/docs/reference/schemas/plugin-bootstrap-profile-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Leak-safe closed output contract for mnemoir plugin bootstrap-profile. The implementation must emit exactly one success or failure envelope and no absolute paths, source text, snippets, credentials, or unrestricted metadata.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/success"
+    },
+    {
+      "$ref": "#/$defs/failure"
+    }
+  ],
+  "title": "Mnemoir plugin bootstrap-profile result"
+}

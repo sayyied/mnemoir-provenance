@@ -25,17 +25,45 @@ def main() -> int:
         env["MNEMOIR_ROOT"] = str(root)
         executable = shutil.which("mnemoir")
         cli = [executable] if executable is not None else [sys.executable, "-m", "mnemoir_provenance.cli"]
-        commands = [cli + ["sources"], cli + ["ingest", "--limit", "5"], cli + ["recall", "source grounded memory", "--limit", "3"]]
+        commands = [
+            cli + ["sources"],
+            cli + ["ingest", "--limit", "5"],
+            cli + ["recall", "source grounded memory", "--limit", "3"],
+            cli + ["recall", "zzzz-no-overlap-9f76b2", "--limit", "3"],
+        ]
         outputs = []
+        timeout_seconds = 30
         for command in commands:
-            proc = subprocess.run(command, env=env, text=True, capture_output=True, timeout=30)
+            try:
+                proc = subprocess.run(
+                    command,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired:
+                print(json.dumps({"status": "error", "error": "host_timeout", "timeout_seconds": timeout_seconds}))
+                return 124
             if proc.returncode != 0:
                 print(proc.stderr, end="", file=__import__("sys").stderr)
                 return proc.returncode
             outputs.append(json.loads(proc.stdout))
-        result = {"status": "ok", "hermes_required": False, "cited_result_count": len(outputs[-1].get("cited_results", [])), "coverage": outputs[-1].get("source_coverage", {})}
+        cited = outputs[2]
+        empty = outputs[3]
+        result = {
+            "status": "ok",
+            "hermes_required": False,
+            "database_owned_by_host": True,
+            "source_scope_explicit": True,
+            "timeout_seconds": timeout_seconds,
+            "cited_result_count": len(cited.get("cited_results", [])),
+            "empty_result_count": len(empty.get("cited_results", [])),
+            "empty_status": empty.get("status"),
+            "coverage": cited.get("source_coverage", {}),
+        }
         print(json.dumps(result, sort_keys=True))
-        return 0 if result["cited_result_count"] else 1
+        return 0 if result["cited_result_count"] and result["empty_result_count"] == 0 else 1
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ from tools.registry import tool_error
 from mnemoir_provenance.audit import write_audit_event
 from mnemoir_provenance.curation import CurationError, create_proposal
 from mnemoir_provenance.db import connect, initialize_database, now_utc
+from mnemoir_provenance.plugin_install import default_plugin_storage
 from mnemoir_provenance.live_overflow import live_overflow_status, run_live_overflow_coordinator
 from mnemoir_provenance.hermes_provider import (
     context_packet,
@@ -260,7 +261,7 @@ def _load_config(hermes_home: str | Path | None = None) -> dict[str, Any]:
 
 
 def _default_db_path(hermes_home: str | Path) -> str:
-    return str(Path(hermes_home).expanduser() / "mnemoir-provenance" / "mnemoir_provenance.sqlite")
+    return str(default_plugin_storage(Path(hermes_home).expanduser())[1])
 
 
 def _json_result(payload: dict[str, Any]) -> str:

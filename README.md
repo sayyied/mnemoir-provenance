@@ -6,7 +6,7 @@ Mnemoir Provenance is a local Python and SQLite memory layer for agents, assista
 
 When evidence is unavailable, Mnemoir keeps that gap visible instead of quietly substituting an uncited result.
 
-**0.2.0 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
+**0.2.1 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
 
 - [Quick start](#quick-start)
 - [How it works](#from-source-to-recall)
@@ -70,35 +70,103 @@ Mnemoir separates records that are often collapsed into one opaque “memory” 
 
 ## Quick start
 
-From a cloned checkout, install the current repository and run the tested in-process example:
+### Install from PyPI (normal user path)
+
+| Surface | Exact identity |
+|---|---|
+| PyPI distribution | `mnemoir-provenance` |
+| Command | `mnemoir` |
+| Python import | `mnemoir_provenance` |
+| Hermes provider | `mnemoir_provenance` |
 
 ```bash
-python -m pip install .
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install mnemoir-provenance
+python -m pip check
+python -c "import mnemoir_provenance; print(mnemoir_provenance.__version__)"
+mnemoir --version
+```
+
+Run the installed standalone example or the equivalent CLI flow:
+
+```bash
 python examples/quickstart/python_quickstart.py
+export MNEMOIR_ROOT="$PWD/example-source"
+export MNEMOIR_DB="$PWD/mnemoir.sqlite"
+mkdir -p "$MNEMOIR_ROOT/docs"
+printf '%s\n' 'Synthetic evidence: Mnemoir returns cited local recall.' > "$MNEMOIR_ROOT/docs/index.md"
+mnemoir sources
+mnemoir ingest --limit 5
+mnemoir recall "cited local recall" --limit 3
 ```
 
-The example creates disposable synthetic evidence, ingests it, and returns one cited result. Its intentionally unavailable secondary source remains visible as degraded coverage:
+Expected recall contains `cited_results`, safe source pointers and content hashes. An unrelated query may return zero results; a missing configured source returns explicit degraded coverage rather than uncited fallback.
 
-```json
-{
-  "status": "degraded",
-  "result_count": 1,
-  "cited_results": [{
-    "source_pointer": "docs/index.md",
-    "content_hash": "a3e93dd7f5708ee4...",
-    "snippet": "Synthetic evidence: the project keeps cited local memory."
-  }],
-  "source_coverage": {
-    "coverage_status": "degraded",
-    "missing_or_degraded_sources": [{
-      "source_id": "local_file_configured_missing",
-      "health": "unavailable"
-    }]
-  }
-}
+### Development checkout (contributors only)
+
+```bash
+git clone https://github.com/sayyied/mnemoir-provenance.git
+cd mnemoir-provenance
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[test]'
+python -m pytest -q
 ```
 
-Continue with [first source and recall](docs/getting-started/first-source-and-recall.md), [memory lifecycle](docs/getting-started/first-memory-lifecycle.md), or the [CLI reference](docs/reference/cli.md).
+Clone/editable installation is not required for normal use.
+
+## Optional Hermes reference adapter
+
+Hermes and Mnemoir must be importable in the **same Python runtime**. In a fresh shared environment:
+
+```bash
+python -m pip install 'mnemoir-provenance[hermes]'
+mnemoir plugin install --hermes-home "$HERMES_HOME"
+mnemoir plugin status --hermes-home "$HERMES_HOME" --hermes-python "$(command -v python)"
+```
+
+For an existing Hermes installation, use the Python interpreter that owns its `hermes` command:
+
+```bash
+HERMES_PYTHON=/path/to/hermes/environment/bin/python
+"$HERMES_PYTHON" -m pip install 'mnemoir-provenance[hermes]'
+"$(dirname "$HERMES_PYTHON")/mnemoir" plugin install --hermes-home "$HERMES_HOME"
+```
+
+The explicit installer copies the plugin and creates only the default profile-scoped storage parent at restrictive mode `0700`. It does **not** select the provider, edit Hermes configuration, restart a gateway, ingest sources, promote memory, or enable writeback. Provider selection is separate and explicit:
+
+```bash
+hermes memory setup mnemoir_provenance
+hermes memory status
+```
+
+`hermes memory status` is authoritative for exclusive memory-provider selection. `hermes plugins list` describes general plugin enablement and may not reflect memory-provider selection. Start a new Hermes process/session through your normal operational procedure after selection; do not assume a running gateway reloads configuration.
+
+A fresh selected provider is intentionally empty/degraded because `ingest_on_start=false`. To prove one controlled source without touching a live profile:
+
+```bash
+mnemoir plugin bootstrap-profile \
+  --hermes-home "$HERMES_HOME" \
+  --profile-root /path/to/controlled-fixture \
+  --profile-id demo-profile \
+  --verify-query "distinct phrase in the fixture"
+```
+
+The fixture may contain only immediate non-symlink `MEMORY.md` and/or `USER.md` inputs. Output validates against [`plugin-bootstrap-profile-result.schema.json`](docs/reference/schemas/plugin-bootstrap-profile-result.schema.json). It reports counts, citations and side-effect booleans—not source text or absolute paths. `bootstrap_no_cited_match` preserves committed idempotent evidence; rerun with a query matching the controlled fixture. The command never promotes durable memory or performs writeback.
+
+### Disable, rollback and retain data
+
+```bash
+hermes memory off
+hermes memory status
+```
+
+Deselecting the provider or removing its copied plugin does not delete the SQLite database. Back up and retain the operator-owned DB according to policy before removing it manually. The public provider `mnemoir_provenance` does not silently replace the historical private provider `council_memory_core`, rewrite selection, or copy/rename an old DB. Deliberate migration requires an SQLite-consistent backup, an explicit target DB, count/hash/read-back checks, and keeping the old provider/DB intact until rollback is no longer needed.
+
+## Generic Python or JSON-CLI hosts
+
+Hermes is not required. Hosts may use the in-process Python API or invoke `mnemoir` as a local JSON subprocess. The host owns database location, source authority, tenant/profile/project/session scope mapping, prompt rendering, approvals, retention, backup, concurrency, timeouts, cancellation, and teardown. See [Python integration](docs/guides/integrate-python.md), [JSON CLI integration](docs/guides/integrate-cli-json.md), and the tested [generic consumer](examples/integrations/generic_cli_consumer.py). No universal auto-attachment protocol or untested named-harness compatibility is claimed.
 
 ## Choose your integration
 
@@ -131,7 +199,7 @@ Read [SECURITY.md](SECURITY.md), the [security model](docs/operations/security-m
 
 ## Project status
 
-The repository currently identifies as Mnemoir Provenance 0.2.0 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets. Package metadata permits installation on newer Python 3 versions, but this version makes no support claim beyond 3.12. Linux is the tested and supported candidate environment. The package is MIT licensed.
+The repository currently identifies as Mnemoir Provenance 0.2.1 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets. Package metadata permits installation on newer Python 3 versions, but this version makes no support claim beyond 3.12. Linux is the tested and supported candidate environment. The package is MIT licensed.
 
 Mnemoir Provenance is an independent open-source project and is not affiliated with other projects using similar names.
 
