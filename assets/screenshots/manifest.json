@@ -1,45 +1,33 @@
 {
-  "schema": "mnemoir-ui-screenshot-evidence-v5",
+  "schema": "mnemoir-ui-screenshot-evidence-v6",
   "product": "Mnemoir Provenance",
   "version": "0.2.0",
-  "generated_from_observed_state": true,
-  "artifact": {
-    "distribution": "mnemoir_provenance-0.2.0-py3-none-any.whl",
-    "sha256": "092f8615da747d8674a794cf9b72c3cfe7f32bae38bb85e0f319c33217341195",
-    "publication_performed": false,
-    "hermes_required": false
-  },
-  "runtime_capture_binding": true,
+  "evidence_scope": "selected screenshot and UI-asset integrity plus documented visual state; runtime capture lineage is not independently reproducible from this public tree",
+  "runtime_capture_binding": false,
   "public_tree_binding": false,
-  "fixture": {
-    "id": "mnemoir-production-visual-fixture-v1",
-    "digest": "7e9eccf0ad5d4ef1f084422ababb7c691b94b24271b3221e221713dda661f7da",
-    "classification": "deterministic synthetic source/evidence/proposal records; no private records"
+  "capture_reference": {
+    "distribution": "mnemoir_provenance-0.2.0-py3-none-any.whl",
+    "wheel_sha256": "092f8615da747d8674a794cf9b72c3cfe7f32bae38bb85e0f319c33217341195",
+    "wheel_shipped_in_public_tree": false,
+    "capture_harness_shipped_in_public_tree": false,
+    "browser_report_shipped_in_public_tree": false,
+    "fixture_id": "mnemoir-production-visual-fixture-v1",
+    "fixture_digest": "7e9eccf0ad5d4ef1f084422ababb7c691b94b24271b3221e221713dda661f7da",
+    "fixture_classification": "deterministic synthetic records; no private records",
+    "publication_performed": false
   },
-  "runtime": "exact installed candidate wheel; loopback HTTP only",
-  "browser": "Chromium via Playwright",
   "ui_assets": {
     "src/mnemoir_provenance/ui/index.html": "be5ffac6768089445a638b0619653c8eed39c1c6ac56399e1656492c7b6652db",
     "src/mnemoir_provenance/ui/app.css": "79ece8c0fb3c2cf97fa0230278e06806b53d3c7a8786040f419a87d321b6b52a",
     "src/mnemoir_provenance/ui/app.js": "fca409b681c8b13f1b73645693b1c9791ccabcc8eea5f43a541504fde28160fc"
   },
-  "observed_checks": {
-    "captured_route_state_viewport_count": 17,
-    "unexpected_successful_path_console_errors": 0,
-    "mobile_horizontal_overflow": false,
-    "zoom_200_effective_viewport_overflow": false,
-    "cited_recall_observed": true,
-    "populated_recall_result_count": 3,
-    "degraded_recall_zero_citations": true,
-    "empty_state_observed": true,
-    "confirmation_and_receipt_states_observed": true
-  },
   "source_mobile_capture": {
-    "path_in_capture_run": "recall-populated-phone390.png",
-    "sha256": "4380c89a7112c60420d2a2ca0b7fb94675ae742eda711bee975e36fcedc1585d",
-    "viewport": "390x844",
-    "pixel_dimensions": "390x2613",
-    "state": "recall/populated-three-citations"
+    "path_in_capture_run": "recall-populated-phone320.png",
+    "sha256": "05591745834aca501d344baf814439f2870d44c285992c1fdf8175b2e1c56696",
+    "viewport": "320x844",
+    "pixel_dimensions": "320x2985",
+    "state": "recall/populated-three-citations",
+    "shipped_in_public_tree": false
   },
   "screenshots": [
     {
@@ -67,19 +55,19 @@
     },
     {
       "path": "assets/screenshots/recall-citation-detail.png",
-      "sha256": "b984db83d3db955d993a010d0ea7630edf6d9d9d753e159887f054fd62ff000a",
-      "pixel_dimensions": "390x755",
-      "state": "recall/first-citation-mobile-detail",
-      "derived_from_sha256": "4380c89a7112c60420d2a2ca0b7fb94675ae742eda711bee975e36fcedc1585d",
-      "crop_box": [0, 650, 390, 1405]
+      "sha256": "9000b4bd81f93745cad99406c9e31fb976dc55444a63a6621f65aac9b3f732f8",
+      "pixel_dimensions": "320x850",
+      "state": "recall/first-citation-native-320-detail",
+      "derived_from_sha256": "05591745834aca501d344baf814439f2870d44c285992c1fdf8175b2e1c56696",
+      "crop_box": [0, 735, 320, 1585]
     },
     {
       "path": "assets/screenshots/recall-coverage-detail.png",
-      "sha256": "2a7d48c28e51859428bbfaec5a0ce5d65e7b48dd0f880b52dd84f591b024dbc8",
-      "pixel_dimensions": "390x303",
-      "state": "recall/coverage-mobile-detail",
-      "derived_from_sha256": "4380c89a7112c60420d2a2ca0b7fb94675ae742eda711bee975e36fcedc1585d",
-      "crop_box": [0, 2310, 390, 2613]
+      "sha256": "b8312bf9faedf2fb8d73f2e98ce7da78eb228714fc72f2021a286b1360a64fda",
+      "pixel_dimensions": "320x275",
+      "state": "recall/coverage-native-320-detail",
+      "derived_from_sha256": "05591745834aca501d344baf814439f2870d44c285992c1fdf8175b2e1c56696",
+      "crop_box": [0, 2625, 320, 2900]
     }
   ]
 }

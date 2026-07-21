@@ -35,14 +35,14 @@ Mnemoir keeps those questions attached to the record. Recall can include source 
 ## See cited recall
 
 <p align="center">
-  <img src="assets/screenshots/recall-citation-detail.png" width="390" alt="A Mnemoir mobile cited recall result with the complete quote, source identity, pointer, observation time, health, and eligibility">
+  <img src="assets/screenshots/recall-citation-detail.png" width="320" alt="A Mnemoir mobile cited recall result with the complete quote, source identity, pointer, observation time, health, and eligibility">
 </p>
 
 <p align="center">
-  <img src="assets/screenshots/recall-coverage-detail.png" width="390" alt="Mnemoir mobile source coverage decision showing five searched sources and one degraded or missing source">
+  <img src="assets/screenshots/recall-coverage-detail.png" width="320" alt="Mnemoir mobile source coverage decision showing five searched sources and one degraded or missing source">
 </p>
 
-*Cited recall keeps the supported statement, source pointer, eligibility, and configured-source coverage together. These width-preserving mobile crops come from the exact installed candidate wheel—not reconstructed UI.*
+*Cited recall keeps the supported statement, source pointer, eligibility, and configured-source coverage together. These native 320px crops preserve the mobile UI's evidence text without shrinking a wider screenshot.*
 
 <details>
 <summary><strong>See the complete Recall page and local workbench</strong></summary>
@@ -55,7 +55,7 @@ Mnemoir keeps those questions attached to the record. Recall can include source 
 
 </details>
 
-*Screenshots use deterministic synthetic records and contain no private profile data. The exact local verification wheel, UI assets, observed browser states, file hashes, and crop coordinates are recorded in the [screenshot manifest](assets/screenshots/manifest.json). No publication was performed.*
+*Screenshots use deterministic synthetic records and contain no private profile data. The selected image/UI hashes, dimensions, states, and crop coordinates are recorded in the [screenshot manifest](assets/screenshots/manifest.json). The full runtime capture bundle is not included in this public mirror; no publication was performed.*
 
 ## From source to recall
 

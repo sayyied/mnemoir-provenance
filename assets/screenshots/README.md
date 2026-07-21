@@ -1,9 +1,7 @@
 # Screenshot evidence
 
-These images were captured from an exact installed `mnemoir-provenance 0.2.0` candidate wheel over the loopback-only application. The capture harness seeded deterministic synthetic source, evidence, proposal, Council, autonomy, and service records. No private records, machine paths, profiles, credentials, or external network services were used.
+These images document Mnemoir UI states using deterministic synthetic records. No private records, machine paths, profiles, credentials, or external network services appear in the selected images.
 
-The browser run exercised 17 route/state/viewport combinations, including populated and degraded Recall at 320/390/430px, an empty recall, proposal review, confirmation, receipt/read-back, Council records, System posture, recovery, 200% zoom, and load-error retry. Successful paths admitted no unexpected browser errors or horizontal viewport overflow.
+`manifest.json` lets a reviewer verify the five selected screenshot files, their dimensions and states, the three corresponding UI assets, and the crop coordinates used for the native 320px citation and coverage details.
 
-`manifest.json` binds the exact installed wheel, UI asset hashes, fixture digest, selected screenshot hashes, observed states, source mobile capture, and crop coordinates. The two README details preserve the 390px mobile capture width so citation and coverage text remain readable on narrow layouts.
-
-The wheel was built only for local verification. No publication was performed.
+The exact wheel, complete source captures, fixture payload, Playwright harness, and browser report used during the private capture session are not shipped in this public projection. Therefore the public repository supports selected-file and UI-asset integrity checks, not independent reproduction of the runtime capture lineage. The wheel reference is informational and no publication was performed by this update.
