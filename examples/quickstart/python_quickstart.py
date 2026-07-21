@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import tempfile
 
 from mnemoir_provenance.db import connect, initialize_database
@@ -17,6 +18,21 @@ with tempfile.TemporaryDirectory(prefix="mnemoir-quickstart-") as temp:
         initialize_database(conn)
         register_sources(conn, root)
         ingest_repo_docs(conn, root, limit=5)
-        result = recall(conn, "cited local memory", limit=3)
-        assert result["cited_results"]
-        print(result)
+        cited = recall(conn, "cited local memory", limit=3)
+        empty = recall(conn, "zzzz-no-overlap-9f76b2", limit=3)
+        assert cited["cited_results"]
+        assert not empty["cited_results"]
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "hermes_required": False,
+                    "database_owned_by_host": True,
+                    "source_scope_explicit": True,
+                    "cited_result_count": len(cited["cited_results"]),
+                    "empty_result_count": len(empty["cited_results"]),
+                    "coverage": cited["source_coverage"],
+                },
+                sort_keys=True,
+            )
+        )

@@ -31,6 +31,7 @@ from .wiki_projection import ProjectionError, write_projection
 from .scoring import ScoringError, apply_scoring_scenario, decay_memory, ranked_memories, review_queue, score_history, score_summary
 from .service import ServiceError, service_restart, service_start, service_status, service_stop
 from .plugin_install import PluginInstallError, install_hermes_plugin
+from .plugin_onboarding import bootstrap_profile, plugin_status
 from .worker import WorkerError, clear_stop, enqueue_promotion, request_stop, run_bounded_worker, worker_status
 from .sources import register_sources
 
@@ -985,6 +986,16 @@ def cmd_plugin_install(args: argparse.Namespace) -> int:
     _json_print(result)
     return 0
 
+def cmd_plugin_status(args: argparse.Namespace) -> int:
+    result = plugin_status(args.hermes_home, hermes_python=args.hermes_python)
+    _json_print(result)
+    return 0 if result.get('status') == 'ok' else 2
+
+def cmd_plugin_bootstrap_profile(args: argparse.Namespace) -> int:
+    exit_code, result = bootstrap_profile(hermes_home=args.hermes_home, profile_root=args.profile_root, profile_id=args.profile_id, verify_query=args.verify_query, db_path=args.db_path)
+    _json_print(result)
+    return exit_code
+
 def cmd_worker_enqueue(args: argparse.Namespace) -> int:
     with _open_initialized(args.db) as conn:
         try:
@@ -1393,11 +1404,22 @@ def build_parser() -> argparse.ArgumentParser:
     service_restart_parser.add_argument('--reason', default='operator_restart')
     service_restart_parser.add_argument('--projection-root')
     service_restart_parser.set_defaults(func=cmd_service_restart)
-    plugin = sub.add_parser('plugin', help='Install the packaged Hermes memory-provider payload into an explicit synthetic HERMES_HOME.')
+    plugin = sub.add_parser('plugin', help='Install and diagnose the packaged Hermes memory-provider payload without selecting it or restarting Hermes.')
     plugin_sub = plugin.add_subparsers(dest='plugin_command', required=True)
-    plugin_install = plugin_sub.add_parser('install', help='Materialize the installed plugin payload; does not edit config or restart Hermes.')
+    plugin_install = plugin_sub.add_parser('install', help='Materialize the installed plugin payload and restrictive default storage parent; does not edit config or restart Hermes.')
     plugin_install.add_argument('--hermes-home', required=True)
     plugin_install.set_defaults(func=cmd_plugin_install)
+    plugin_status_parser = plugin_sub.add_parser('status', help='Diagnose package/plugin/provider/storage readiness without mutation.')
+    plugin_status_parser.add_argument('--hermes-home', required=True)
+    plugin_status_parser.add_argument('--hermes-python')
+    plugin_status_parser.set_defaults(func=cmd_plugin_status)
+    plugin_bootstrap = plugin_sub.add_parser('bootstrap-profile', help='Explicitly ingest one controlled profile fixture and verify cited recall.')
+    plugin_bootstrap.add_argument('--hermes-home', required=True)
+    plugin_bootstrap.add_argument('--profile-root', required=True)
+    plugin_bootstrap.add_argument('--profile-id', required=True)
+    plugin_bootstrap.add_argument('--verify-query', required=True)
+    plugin_bootstrap.add_argument('--db-path')
+    plugin_bootstrap.set_defaults(func=cmd_plugin_bootstrap_profile)
     worker = sub.add_parser('worker', help='Explicit bounded durable lifecycle worker; no daemon or autostart.')
     worker_sub = worker.add_subparsers(dest='worker_command', required=True)
     worker_enqueue = worker_sub.add_parser('enqueue')
@@ -1823,7 +1845,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None=None) -> int:
     parser = build_parser()
-    parser.add_argument('--version', action='version', version='%(prog)s 0.2.0')
+    parser.add_argument('--version', action='version', version='%(prog)s 0.2.1')
     args = parser.parse_args(argv)
     return args.func(args)
 if __name__ == '__main__':

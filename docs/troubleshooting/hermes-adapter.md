@@ -1,5 +1,5 @@
 # Hermes adapter problems
 
-Verify the optional extra, packaged plugin discovery, selected provider ID, explicit profile registration, database path, source health, and profile scope. Missing plugin/profile/source should produce disabled/degraded status without uncited fallback.
+Use the exact Hermes home and interpreter. Run `mnemoir plugin status --hermes-home <HOME> --hermes-python <HERMES_PYTHON>`, then `hermes memory status`. A copied row that is unavailable usually means the package is absent from the Hermes interpreter or the explicit installer did not prepare the default parent. General `hermes plugins list` state is not authoritative for memory-provider selection.
 
-Plugin installation does not authorize gateway restarts, provider edits, or live Markdown writeback.
+Fresh empty/degraded recall is expected; no live profile is ingested automatically. Controlled bootstrap denial is not transient: fix the exact profile root/scope/custom-parent input. If cited verification returns `bootstrap_no_cited_match`, evidence remains committed and idempotent; rerun with a query present in the fixture. Installation/bootstrap never authorizes gateway restarts, provider edits, promotion, live Markdown reads, or writeback. Disable with `hermes memory off`, verify memory status, and preserve the DB until retention/rollback policy authorizes removal.
