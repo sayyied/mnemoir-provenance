@@ -55,7 +55,7 @@ Mnemoir keeps those questions attached to the record. Recall can include source 
 
 </details>
 
-*Screenshots use deterministic synthetic records and contain no private profile data. The selected image/UI hashes, dimensions, states, and crop coordinates are recorded in the [screenshot manifest](assets/screenshots/manifest.json). The full runtime capture bundle is not included in this public mirror; no publication was performed.*
+*Screenshots use deterministic synthetic records and contain no private profile data. The selected image/UI hashes, dimensions, states, and crop coordinates are recorded in the [screenshot manifest](assets/screenshots/manifest.json). The full runtime capture bundle is not included in this public mirror.*
 
 ## From source to recall
 
@@ -88,10 +88,9 @@ python -c "import mnemoir_provenance; print(mnemoir_provenance.__version__)"
 mnemoir --version
 ```
 
-Run the installed standalone example or the equivalent CLI flow:
+Run the standalone CLI flow directly from the installed package:
 
 ```bash
-python examples/quickstart/python_quickstart.py
 export MNEMOIR_ROOT="$PWD/example-source"
 export MNEMOIR_DB="$PWD/mnemoir.sqlite"
 mkdir -p "$MNEMOIR_ROOT/docs"
@@ -100,6 +99,8 @@ mnemoir sources
 mnemoir ingest --limit 5
 mnemoir recall "cited local recall" --limit 3
 ```
+
+A repository checkout also includes `examples/quickstart/python_quickstart.py`; cloning the repository is not required for the CLI flow above.
 
 Expected recall contains `cited_results`, safe source pointers and content hashes. An unrelated query may return zero results; a missing configured source returns explicit degraded coverage rather than uncited fallback.
 
@@ -122,6 +123,7 @@ Hermes and Mnemoir must be importable in the **same Python runtime**. In a fresh
 
 ```bash
 python -m pip install 'mnemoir-provenance[hermes]'
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 mnemoir plugin install --hermes-home "$HERMES_HOME"
 mnemoir plugin status --hermes-home "$HERMES_HOME" --hermes-python "$(command -v python)"
 ```
@@ -153,7 +155,7 @@ mnemoir plugin bootstrap-profile \
   --verify-query "distinct phrase in the fixture"
 ```
 
-The fixture may contain only immediate non-symlink `MEMORY.md` and/or `USER.md` inputs. Output validates against [`plugin-bootstrap-profile-result.schema.json`](docs/reference/schemas/plugin-bootstrap-profile-result.schema.json). It reports counts, citations and side-effect booleans—not source text or absolute paths. `bootstrap_no_cited_match` preserves committed idempotent evidence; rerun with a query matching the controlled fixture. The command never promotes durable memory or performs writeback.
+For v0.2.1, the controlled fixture must contain both immediate non-symlink `MEMORY.md` and `USER.md` inputs; either file may be minimal, but an absent configured source is reported as degraded and the bootstrap fails closed. Output validates against [`plugin-bootstrap-profile-result.schema.json`](docs/reference/schemas/plugin-bootstrap-profile-result.schema.json). It reports counts, citations and side-effect booleans—not source text or absolute paths. `bootstrap_no_cited_match` preserves committed idempotent evidence; rerun with a query matching the controlled fixture. The command never promotes durable memory or performs writeback.
 
 ### Disable, rollback and retain data
 
