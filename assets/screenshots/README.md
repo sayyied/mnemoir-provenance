@@ -1,9 +1,9 @@
 # Screenshot evidence
 
-These images were captured from an exact installed `0.2.0-rc.1` wheel over the loopback-only application using deterministic synthetic source, evidence, proposal, Council, and service records. No private records, machine paths, profiles, credentials, or external network services were used.
+These images were captured from an exact installed `mnemoir-provenance 0.2.0` candidate wheel over the loopback-only application. The capture harness seeded deterministic synthetic source, evidence, proposal, Council, autonomy, and service records. No private records, machine paths, profiles, credentials, or external network services were used.
 
-`manifest.json` binds each shipped image to its SHA-256 digest, viewport, rendered state, exact installed wheel digest, generated UI asset digests, and observed browser checks. The broader private verification run asserts 17 route/state/viewport screenshots, including an attention-led and genuinely healthy Home, three-citation Recall, zero-citation degraded abstention, 320/390/430 responsive Recall, proposal review, concrete confirmation, authoritative receipt/readback and recovery, Council proof, System posture/control, and load-error recovery.
+The browser run exercised 17 route/state/viewport combinations, including populated and degraded Recall at 320/390/430px, an empty recall, proposal review, confirmation, receipt/read-back, Council records, System posture, recovery, 200% zoom, and load-error retry. Successful paths admitted no unexpected browser errors or horizontal viewport overflow.
 
-The three shipped images are selected views from that exact 17-image installed-wheel denominator. A contact sheet is not used as a substitute for readable individual inspection.
+`manifest.json` binds the exact installed wheel, UI asset hashes, fixture digest, selected screenshot hashes, observed states, source mobile capture, and crop coordinates. The two README details preserve the 390px mobile capture width so citation and coverage text remain readable on narrow layouts.
 
-Regenerate this evidence whenever the production UI assets or shipped screenshot assets change. Do not blur private data—remove it at the source.
+The wheel was built only for local verification. No publication was performed.

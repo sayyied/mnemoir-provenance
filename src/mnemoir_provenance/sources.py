@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sqlite3
+import stat
 from typing import Any
 
 from .db import json_dumps, now_utc, row_to_dict
@@ -28,10 +29,35 @@ class SourceConfig:
     privacy_policy: dict[str, Any] | None = None
 
 
+def _controlled_regular_file_available(repo_root: Path, relative_path: str) -> bool:
+    """Return a non-authoritative health snapshot without following links."""
+    rel = PurePosixPath(relative_path)
+    if rel.is_absolute() or not rel.parts or any(part in {"", ".", ".."} for part in rel.parts):
+        return False
+    try:
+        root_metadata = repo_root.lstat()
+        if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
+            return False
+        current = repo_root
+        for index, component in enumerate(rel.parts):
+            current = current / component
+            metadata = current.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                return False
+            final = index == len(rel.parts) - 1
+            if final:
+                return stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+            if not stat.S_ISDIR(metadata.st_mode):
+                return False
+    except OSError:
+        return False
+    return False
+
+
 def configured_sources(repo_root: Path) -> list[SourceConfig]:
-    docs_index = repo_root / "docs" / "index.md"
-    missing_source = repo_root / "data" / "configured-local-source-missing.txt"
-    docs_health = "healthy" if docs_index.exists() else "unavailable"
+    docs_available = _controlled_regular_file_available(repo_root, "docs/index.md")
+    missing_available = _controlled_regular_file_available(repo_root, "data/configured-local-source-missing.txt")
+    docs_health = "healthy" if docs_available else "unavailable"
     return [
         SourceConfig(
             source_id="repo_docs_canonical",
@@ -55,9 +81,9 @@ def configured_sources(repo_root: Path) -> list[SourceConfig]:
             authority_level="secondary",
             read_authority="read_only",
             write_authority="none",
-            health="healthy" if missing_source.exists() else "unavailable",
-            freshness_seconds=0 if missing_source.exists() else None,
-            failure_reason=None if missing_source.exists() else "configured local file source is unavailable",
+            health="healthy" if missing_available else "unavailable",
+            freshness_seconds=0 if missing_available else None,
+            failure_reason=None if missing_available else "configured local file source is unavailable",
             provenance_rules={"pointer_policy": "relative_repo_path", "source_family": "file"},
             privacy_policy={"default_visibility": "private", "redact_absolute_paths": True},
         ),

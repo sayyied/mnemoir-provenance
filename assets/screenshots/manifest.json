@@ -1,44 +1,85 @@
 {
-  "schema": "mnemoir-ui-screenshot-evidence-v3",
+  "schema": "mnemoir-ui-screenshot-evidence-v5",
   "product": "Mnemoir Provenance",
   "version": "0.2.0",
+  "generated_from_observed_state": true,
   "artifact": {
     "distribution": "mnemoir_provenance-0.2.0-py3-none-any.whl",
-    "sha256": "81eedc504556437d4783263a223d89cd6890c9c25cb3c8231a07d97064fb73ae",
+    "sha256": "092f8615da747d8674a794cf9b72c3cfe7f32bae38bb85e0f319c33217341195",
+    "publication_performed": false,
     "hermes_required": false
   },
-  "ui_assets": {
-    "src/mnemoir_provenance/ui/index.html": "677f46af987203e56378c61bc4af673a4b4d5b672f4cd4678b4fbe920177332d",
-    "src/mnemoir_provenance/ui/app.css": "79ece8c0fb3c2cf97fa0230278e06806b53d3c7a8786040f419a87d321b6b52a",
-    "src/mnemoir_provenance/ui/app.js": "acb771b85035262a71c735c197527c907d2dc7548fa79a9c4dbb9134920ced17"
-  },
+  "runtime_capture_binding": true,
+  "public_tree_binding": false,
   "fixture": {
     "id": "mnemoir-production-visual-fixture-v1",
     "digest": "7e9eccf0ad5d4ef1f084422ababb7c691b94b24271b3221e221713dda661f7da",
     "classification": "deterministic synthetic source/evidence/proposal records; no private records"
   },
-  "runtime": "exact installed wheel; loopback HTTP only",
+  "runtime": "exact installed candidate wheel; loopback HTTP only",
   "browser": "Chromium via Playwright",
-  "installed_evidence": {
-    "private_screenshot_count": 17,
-    "manifest_sha256": "ee54118d6ae3bb1396565f0985a8f745eb4ad0979e8796bcdd785e7e91830cbd"
+  "ui_assets": {
+    "src/mnemoir_provenance/ui/index.html": "be5ffac6768089445a638b0619653c8eed39c1c6ac56399e1656492c7b6652db",
+    "src/mnemoir_provenance/ui/app.css": "79ece8c0fb3c2cf97fa0230278e06806b53d3c7a8786040f419a87d321b6b52a",
+    "src/mnemoir_provenance/ui/app.js": "fca409b681c8b13f1b73645693b1c9791ccabcc8eea5f43a541504fde28160fc"
   },
-  "checks": {
+  "observed_checks": {
+    "captured_route_state_viewport_count": 17,
     "unexpected_successful_path_console_errors": 0,
     "mobile_horizontal_overflow": false,
     "zoom_200_effective_viewport_overflow": false,
     "cited_recall_observed": true,
     "populated_recall_result_count": 3,
     "degraded_recall_zero_citations": true,
-    "healthy_home_actionable_count": 0,
-    "healthy_home_degraded_source_count": 0,
-    "healthy_home_runtime_state": "running",
     "empty_state_observed": true,
     "confirmation_and_receipt_states_observed": true
   },
+  "source_mobile_capture": {
+    "path_in_capture_run": "recall-populated-phone390.png",
+    "sha256": "4380c89a7112c60420d2a2ca0b7fb94675ae742eda711bee975e36fcedc1585d",
+    "viewport": "390x844",
+    "pixel_dimensions": "390x2613",
+    "state": "recall/populated-three-citations"
+  },
   "screenshots": [
-    {"path": "assets/screenshots/home-desktop.png", "sha256": "a84aa107671e3c1c341924598285c5623371bd6d198b3d15b6c3f9dccaf8e97a", "viewport": "1440x1000", "state": "home/approval-needed-attention"},
-    {"path": "assets/screenshots/recall-desktop.png", "sha256": "17254b70fccc4b4aa6748cc4e6416de0ff27450e6b2a1235051d3b4a9f71c0b8", "viewport": "1440x1000", "state": "recall/populated-three-citations"},
-    {"path": "assets/screenshots/memory-mobile.png", "sha256": "8f52e897de3779467f5e193c616958efc66e1e1ef0c5bb3384e4c3f932a0d97b", "viewport": "390x844", "state": "memory/proposal-review-responsive"}
+    {
+      "path": "assets/screenshots/home-desktop.png",
+      "sha256": "a84aa107671e3c1c341924598285c5623371bd6d198b3d15b6c3f9dccaf8e97a",
+      "viewport": "1440x1000",
+      "pixel_dimensions": "1440x1000",
+      "state": "home/approval-needed-attention"
+    },
+    {
+      "path": "assets/screenshots/recall-desktop.png",
+      "sha256": "b11dd77cb70f82ebb44915de563e558022193d821c3612396fe5766faadf8c9e",
+      "viewport": "1440x1000",
+      "pixel_dimensions": "1440x1970",
+      "capture": "full-page",
+      "state": "recall/populated-three-citations"
+    },
+    {
+      "path": "assets/screenshots/memory-mobile.png",
+      "sha256": "58e75c49b9ac37c72e4f70c4492f9f8ab378544f7beccc3dfd018cee6dce1d3f",
+      "viewport": "390x844",
+      "pixel_dimensions": "390x2145",
+      "capture": "full-page",
+      "state": "memory/proposal-review-responsive"
+    },
+    {
+      "path": "assets/screenshots/recall-citation-detail.png",
+      "sha256": "b984db83d3db955d993a010d0ea7630edf6d9d9d753e159887f054fd62ff000a",
+      "pixel_dimensions": "390x755",
+      "state": "recall/first-citation-mobile-detail",
+      "derived_from_sha256": "4380c89a7112c60420d2a2ca0b7fb94675ae742eda711bee975e36fcedc1585d",
+      "crop_box": [0, 650, 390, 1405]
+    },
+    {
+      "path": "assets/screenshots/recall-coverage-detail.png",
+      "sha256": "2a7d48c28e51859428bbfaec5a0ce5d65e7b48dd0f880b52dd84f591b024dbc8",
+      "pixel_dimensions": "390x303",
+      "state": "recall/coverage-mobile-detail",
+      "derived_from_sha256": "4380c89a7112c60420d2a2ca0b7fb94675ae742eda711bee975e36fcedc1585d",
+      "crop_box": [0, 2310, 390, 2613]
+    }
   ]
 }
