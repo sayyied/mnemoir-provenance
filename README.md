@@ -88,6 +88,18 @@ python -c "import mnemoir_provenance; print(mnemoir_provenance.__version__)"
 mnemoir --version
 ```
 
+Use the command above for a first installation. To upgrade an existing Mnemoir installation to the newest available release, add pip's `--upgrade` flag:
+
+```bash
+python -m pip install --upgrade mnemoir-provenance
+```
+
+For a reproducible installation of this exact release, pin the version; `--upgrade` is unnecessary with the exact pin:
+
+```bash
+python -m pip install 'mnemoir-provenance==0.2.1'
+```
+
 Run the standalone CLI flow directly from the installed package:
 
 ```bash
@@ -135,6 +147,8 @@ HERMES_PYTHON=/path/to/hermes/environment/bin/python
 "$HERMES_PYTHON" -m pip install 'mnemoir-provenance[hermes]'
 "$(dirname "$HERMES_PYTHON")/mnemoir" plugin install --hermes-home "$HERMES_HOME"
 ```
+
+That command adds Mnemoir to the Hermes environment when it is absent. If Mnemoir is already installed there and you intend to update it, use `"$HERMES_PYTHON" -m pip install --upgrade 'mnemoir-provenance[hermes]'` instead.
 
 The explicit installer copies the plugin and creates only the default profile-scoped storage parent at restrictive mode `0700`. It does **not** select the provider, edit Hermes configuration, restart a gateway, ingest sources, promote memory, or enable writeback. Provider selection is separate and explicit:
 
