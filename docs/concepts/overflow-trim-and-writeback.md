@@ -1,4 +1,4 @@
-# Overflow, trim, and writeback
+# Keep working memory small without losing its history
 
 Working memory should stay small enough to steer the current session. Durable memory should keep useful history beyond the session. Overflow handling connects them: it can shorten bounded working-memory files without silently throwing their removed content away.
 
@@ -39,14 +39,29 @@ These are adapter defaults, not universal limits. A host can define a different 
 
 For example, a 2,050-character `MEMORY.md` is above the default 90% trigger. Rather than chopping off text, Mnemoir plans toward 1,100 characters, binds the plan to the current file hash, preserves removed blocks as evidence, verifies the replacement, and retains a rollback path. If the file changes after measurement, the stale plan is rejected.
 
-## Preview versus live operation
+## What is available today?
 
-- **Controlled-fixture status and proposal mode** lets an operator inspect pressure and deterministic plans without reading or mutating live profile files.
-- **Authorized live mode** requires an explicitly configured target adapter, policy, private journal/backup root, and authorization issuer or operator-enabled bounded coordinator policy. It is not enabled by package installation or provider discovery.
+| Surface | Reads live files? | Mutates files? | Current boundary |
+|---|---:|---:|---|
+| Controlled-fixture pressure status | No | No | Temporary caller-supplied fixtures only |
+| Proposal planner | No | No | Uses already-ingested SQLite records |
+| Live overflow status | Yes | No | Explicitly configured Hermes roots; status only |
+| Authorized live writeback | Yes | Yes | Hermes `MEMORY.md`/`USER.md` plus a configured private transaction root |
+| Overflow coordinator | Yes | Yes | Disabled unless a durable `writeback_mode=live_overflow_trim` policy is configured; scheduling is host-owned |
+
+A proposal is not authorization and does not mutate a file. Authorized live operation requires an explicitly configured target adapter, policy, private journal/backup root, and authorization issuer or operator-enabled bounded coordinator policy. It is not enabled by package installation or provider discovery.
 
 ## Fail-closed boundaries
 
 Mnemoir refuses or blocks the operation when the target is outside its allowed root, a path component is a symlink, the target is not a regular supported file, private backup permissions are unsafe, the source hash changed, protected blocks make the target unreachable, or recovery sees an unknown file state. Scheduling and service persistence remain the host's responsibility.
+
+## Important operational boundaries
+
+- The live implementation performs deterministic **block-level trimming**, not semantic summarization.
+- Same-directory replacement and filesystem synchronization protect the target file, but the file replacement and SQLite evidence commit are not one atomic transaction. Reconciliation handles interrupted intermediate states.
+- Rollback requires retained private recovery data, a new scoped authorization, and an exact match to the expected post-write hash. Some failures require manual recovery.
+- Backups and removed blocks may contain sensitive plaintext. Operators own filesystem permissions, retention, and secure deletion.
+- Mnemoir rejects unexpected hashes and path identities rather than overwriting concurrent edits, but it is not an operating-system sandbox.
 
 The feature is local-first: it does not require a remote memory service, silently enable writeback, or turn trimmed evidence into unquestioned truth.
 
@@ -54,4 +69,6 @@ The feature is local-first: it does not require a remote memory service, silentl
 
 - Follow [Operate overflow safely](../guides/operate-overflow.md) for the operator sequence.
 - Read [Overflow coordinator](../operations/overflow-coordinator.md) before enabling bounded live coordination.
-- Use [Overflow and trim problems](../troubleshooting/overflow-and-trim.md) for stale snapshots, unavailable pressure, and unreachable targets.
+- Use [Recover and roll back writeback](../guides/recover-and-rollback-writeback.md) for interrupted operations and restoration.
+- Review the [Threat model](../operations/threat-model.md) for host and filesystem responsibilities.
+- Use [Overflow and trim problems](../troubleshooting/overflow-and-trim.md) and [Writeback and rollback problems](../troubleshooting/writeback-and-rollback.md) for recovery guidance.
