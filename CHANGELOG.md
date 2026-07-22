@@ -2,7 +2,7 @@
 
 All notable user-visible changes are recorded here.
 
-## 0.2.1 — local unpublished candidate
+## 0.2.1 — public Beta release
 
 - Put `python -m pip install mnemoir-provenance` first and separated standalone, development, Hermes shared/existing-runtime, generic Python, and JSON CLI onboarding.
 - Hardened explicit Hermes plugin installation so it alone creates the restrictive default storage parent; provider discovery remains side-effect-free.
