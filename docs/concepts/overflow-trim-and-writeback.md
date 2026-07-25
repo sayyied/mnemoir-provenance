@@ -10,6 +10,12 @@ Long-running agents accumulate instructions, preferences, decisions, and context
 
 Mnemoir treats overflow as a governed memory lifecycle instead of a text-deletion shortcut.
 
+## Why this can reduce memory churn
+
+Overflow alone does not make a host selective. The efficiency comes from separating what must stay in the always-loaded working set from what only needs to remain recoverable. A host can keep compact files for high-signal guidance, preserve older or narrower detail as cited evidence, and promote an observation back into durable memory only through an explicit, reviewable decision.
+
+Avoid a refill loop in which trimmed blocks are summarized and automatically written back into the same bounded file. That pattern can recreate pressure, duplicate claims, and even produce self-referential memories about overflow itself. Mnemoir preserves removed blocks for cited recall but does not automatically inject them back into working memory. The result can be less need to overflow, not merely safer overflow; actual write volume still depends on the host's admission policy.
+
 ## Two kinds of memory
 
 - **Working memory** is the small, high-signal context a host loads for the current interaction. In the Hermes reference adapter, this includes `MEMORY.md` and `USER.md`.
