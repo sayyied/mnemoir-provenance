@@ -31,6 +31,7 @@ Mnemoir keeps those questions attached to the record. Recall can include source 
 - **Missing sources stay visible.** Responses report which configured sources were searched and which were missing or degraded. A successful result does not conceal impaired coverage.
 - **Empty recall stays empty.** No eligible match can produce an abstaining or empty response rather than an uncited fallback. Empty recall is not a claim that something is false.
 - **Durable memory is a decision.** Source observations can become proposals; review, approval, writing, read-back, revision, tombstone, and rollback remain separate recorded operations.
+- **Working memory can stay selective.** Small host files can keep only high-signal guidance while older detail remains available as cited local evidence. Trimmed observations are not automatically pumped back into the same bounded files; promotion remains explicit and reviewable.
 
 ## See cited recall
 
