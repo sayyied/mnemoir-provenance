@@ -1,5 +1,7 @@
 # Mnemoir Provenance
 
+![Mnemoir — memory that can show its work, from source through evidence and versioned memory to cited recall](assets/mnemoir-repository-hero.jpg)
+
 **Agent memory that can show where it came from — and what changed.**
 
 Mnemoir Provenance is a local Python and SQLite memory layer for agents, assistants, and long-running AI systems. It ingests explicitly controlled sources, returns recall with citations and source-coverage status, and keeps durable memory changes behind a reviewable, versioned lifecycle.
