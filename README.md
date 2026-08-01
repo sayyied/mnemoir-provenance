@@ -100,7 +100,7 @@ python -m pip install --upgrade mnemoir-provenance
 For a reproducible installation of this exact release, pin the version; `--upgrade` is unnecessary with the exact pin:
 
 ```bash
-python -m pip install 'mnemoir-provenance==0.2.1'
+python -m pip install 'mnemoir-provenance==0.2.2'
 ```
 
 Run the standalone CLI flow directly from the installed package:
@@ -172,7 +172,7 @@ mnemoir plugin bootstrap-profile \
   --verify-query "distinct phrase in the fixture"
 ```
 
-For v0.2.1, the controlled fixture must contain both immediate non-symlink `MEMORY.md` and `USER.md` inputs; either file may be minimal, but an absent configured source is reported as degraded and the bootstrap fails closed. Output validates against [`plugin-bootstrap-profile-result.schema.json`](docs/reference/schemas/plugin-bootstrap-profile-result.schema.json). It reports counts, citations and side-effect booleans—not source text or absolute paths. `bootstrap_no_cited_match` preserves committed idempotent evidence; rerun with a query matching the controlled fixture. The command never promotes durable memory or performs writeback.
+For v0.2.2, the controlled fixture must contain both immediate non-symlink `MEMORY.md` and `USER.md` inputs; either file may be minimal, but an absent configured source is reported as degraded and the bootstrap fails closed. Output validates against [`plugin-bootstrap-profile-result.schema.json`](docs/reference/schemas/plugin-bootstrap-profile-result.schema.json). It reports counts, citations and side-effect booleans—not source text or absolute paths. `bootstrap_no_cited_match` preserves committed idempotent evidence; rerun with a query matching the controlled fixture. The command never promotes durable memory or performs writeback.
 
 ### Disable, rollback and retain data
 

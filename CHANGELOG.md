@@ -2,7 +2,7 @@
 
 All notable user-visible changes are recorded here.
 
-## 0.2.2 — public Beta release
+## 0.2.2 — 2026-08-01
 
 - Corrected Hermes writeback health reporting so profile-scoped historical partial trims stop counting as unresolved after a later successful write, while genuine recovery-required states remain visible.
 - Put `python -m pip install mnemoir-provenance` first and separated standalone, development, Hermes shared/existing-runtime, generic Python, and JSON CLI onboarding.
@@ -10,8 +10,6 @@ All notable user-visible changes are recorded here.
 - Added non-mutating package/plugin/provider/storage diagnostics, including actionable same-interpreter failure.
 - Added the closed-schema `mnemoir plugin bootstrap-profile` flow for controlled cited recall with idempotent evidence, no automatic promotion, and no writeback.
 - Added disable/data-retention, migration/rollback, empty/degraded, denial, timeout, and troubleshooting guidance.
-
-This prepares a local Mnemoir Provenance 0.2.2 candidate. It has not been published.
 
 ## 0.2.0 — 2026-07-16
 
