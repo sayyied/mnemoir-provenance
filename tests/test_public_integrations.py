@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 from mnemoir_provenance.db import connect, initialize_database
+from mnemoir_provenance.hermes_plugin.provider import CouncilMemoryCoreProvider  # type: ignore[import-not-found]
 from mnemoir_provenance.scope import decide_visibility
 from mnemoir_provenance.source_adapters import import_session_search_fixture
 
@@ -67,3 +68,43 @@ def test_host_boundary_scope_denial_is_explicit_and_leak_safe(seeded_db):
         assert denied["reason"] == "requesting_actor_not_found"
         assert denied["profile_internals_exposed"] is False
         assert "/home/" not in json.dumps(denied)
+
+
+def _insert_writeback(conn, operation_id, *, profile_id, state, target="target", operation_type="live_overflow_trim"):
+    authorization_id = f"auth-{operation_id}"
+    created_at = "2026-01-01T00:00:00Z"
+    conn.execute(
+        "INSERT INTO writeback_authorizations(authorization_id,operation_id,nonce_hash,capability_hash,profile_id,target_path_hash,allowed_root_hash,expected_before_hash,operation_type,policy_version,approving_actor,issued_at,expires_at,consumed_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (authorization_id, operation_id, f"nonce-{operation_id}", f"capability-{operation_id}", profile_id, target, "root", "before", operation_type, "test", "reviewer", created_at, "2099-01-01T00:00:00Z", created_at, created_at),
+    )
+    conn.execute(
+        "INSERT INTO writeback_operations(operation_id,authorization_id,profile_id,target_path_hash,allowed_root_hash,expected_before_hash,policy_version,operation_type,state,evidence_state,audit_state,created_at,updated_at,completed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (operation_id, authorization_id, profile_id, target, "root", "before", "test", operation_type, state, "committed", "committed", created_at, created_at, created_at),
+    )
+    conn.commit()
+
+
+def test_writeback_status_distinguishes_superseded_partials_from_hard_recovery(tmp_path):
+    db_path = tmp_path / "mnemoir.sqlite"
+    with connect(db_path) as conn:
+        initialize_database(conn)
+        _insert_writeback(conn, "partial", profile_id="demo", state="completed_partial")
+        _insert_writeback(conn, "success", profile_id="demo", state="completed")
+        _insert_writeback(conn, "other-profile", profile_id="other", state="completed_partial")
+
+    (tmp_path / "mnemoir_provenance.json").write_text(
+        json.dumps({"db_path": str(db_path), "writeback_mode": "live_overflow_trim"}),
+        encoding="utf-8",
+    )
+    provider = CouncilMemoryCoreProvider()
+    provider.initialize("public-regression", hermes_home=tmp_path, agent_identity="demo")
+    status = json.loads(provider.handle_tool_call("cmc_writeback_status", {}))
+    assert status["unresolved_operation_count"] == 0
+    assert status["historical_partial_operation_count"] == 1
+
+    with connect(db_path) as conn:
+        _insert_writeback(conn, "hard", profile_id="demo", state="recovery_required")
+        _insert_writeback(conn, "later-success", profile_id="demo", state="completed")
+    status = json.loads(provider.handle_tool_call("cmc_writeback_status", {}))
+    assert status["status"] == "degraded"
+    assert status["unresolved_operation_count"] == 1

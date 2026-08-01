@@ -8,7 +8,7 @@ Mnemoir Provenance is a local Python and SQLite memory layer for agents, assista
 
 When evidence is unavailable, Mnemoir keeps that gap visible instead of quietly substituting an uncited result.
 
-**0.2.1 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
+**0.2.2 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
 
 - [Quick start](#quick-start)
 - [How it works](#from-source-to-recall)
@@ -218,7 +218,7 @@ Read [SECURITY.md](SECURITY.md), the [security model](docs/operations/security-m
 
 ## Project status
 
-The repository currently identifies as Mnemoir Provenance 0.2.1 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets. Package metadata permits installation on newer Python 3 versions, but this version makes no support claim beyond 3.12. Linux is the tested and supported candidate environment. The package is MIT licensed.
+The repository currently identifies as Mnemoir Provenance 0.2.2 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets. Package metadata permits installation on newer Python 3 versions, but this version makes no support claim beyond 3.12. Linux is the tested and supported candidate environment. The package is MIT licensed.
 
 Mnemoir Provenance is an independent open-source project and is not affiliated with other projects using similar names.
 

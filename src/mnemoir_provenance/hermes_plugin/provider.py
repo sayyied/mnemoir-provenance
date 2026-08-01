@@ -840,7 +840,38 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 })
                 if configured_writeback_mode == "live_overflow_trim":
                     unresolved_count = conn.execute(
-                        "SELECT COUNT(*) FROM writeback_operations WHERE state IN ('recovery_required','concurrent_edit_detected','blocked_target_unreachable','completed_partial','legacy_manual_recovery_required')"
+                        """
+                        SELECT COUNT(*)
+                        FROM writeback_operations AS candidate
+                        WHERE candidate.profile_id = ?
+                          AND (
+                              candidate.state IN (
+                                  'recovery_required',
+                                  'concurrent_edit_detected',
+                                  'legacy_manual_recovery_required'
+                              )
+                              OR (
+                                  candidate.state IN (
+                                      'blocked_target_unreachable',
+                                      'completed_partial'
+                                  )
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM writeback_operations AS later_success
+                                      WHERE later_success.profile_id = candidate.profile_id
+                                        AND later_success.target_path_hash = candidate.target_path_hash
+                                        AND later_success.operation_type = candidate.operation_type
+                                        AND later_success.state = 'completed'
+                                        AND later_success.rowid > candidate.rowid
+                                  )
+                              )
+                          )
+                        """,
+                        (self._agent_identity,),
+                    ).fetchone()[0]
+                    historical_partial_count = conn.execute(
+                        "SELECT COUNT(*) FROM writeback_operations WHERE profile_id = ? AND state = 'completed_partial'",
+                        (self._agent_identity,),
                     ).fetchone()[0]
                     last_run = self._last_status.get("live_overflow_trim") or {}
                     last_mutated = int(last_run.get("mutated_file_count") or 0)
@@ -855,6 +886,7 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                         "file_mutation_performed": bool(last_mutated),
                         "last_mutated_file_count": last_mutated,
                         "unresolved_operation_count": unresolved_count,
+                        "historical_partial_operation_count": historical_partial_count,
                         "provider_can_issue_internal_transaction_capability": True,
                         "non_overflow_arbitrary_writeback": "denied_or_propose_only",
                     })
