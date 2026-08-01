@@ -1,10 +1,11 @@
+import importlib
 import json
 from pathlib import Path
 import subprocess
 import sys
+from types import ModuleType
 
 from mnemoir_provenance.db import connect, initialize_database
-from mnemoir_provenance.hermes_plugin.provider import CouncilMemoryCoreProvider  # type: ignore[import-not-found]
 from mnemoir_provenance.scope import decide_visibility
 from mnemoir_provenance.source_adapters import import_session_search_fixture
 
@@ -84,7 +85,7 @@ def _insert_writeback(conn, operation_id, *, profile_id, state, target="target",
     conn.commit()
 
 
-def test_writeback_status_distinguishes_superseded_partials_from_hard_recovery(tmp_path):
+def test_writeback_status_distinguishes_superseded_partials_from_hard_recovery(tmp_path, monkeypatch):
     db_path = tmp_path / "mnemoir.sqlite"
     with connect(db_path) as conn:
         initialize_database(conn)
@@ -96,7 +97,20 @@ def test_writeback_status_distinguishes_superseded_partials_from_hard_recovery(t
         json.dumps({"db_path": str(db_path), "writeback_mode": "live_overflow_trim"}),
         encoding="utf-8",
     )
-    provider = CouncilMemoryCoreProvider()
+    agent_module = ModuleType("agent")
+    agent_module.__path__ = []
+    memory_provider_module = ModuleType("agent.memory_provider")
+    setattr(memory_provider_module, "MemoryProvider", type("MemoryProvider", (), {}))
+    tools_module = ModuleType("tools")
+    tools_module.__path__ = []
+    registry_module = ModuleType("tools.registry")
+    setattr(registry_module, "tool_error", lambda message: {"status": "error", "error": message})
+    monkeypatch.setitem(sys.modules, "agent", agent_module)
+    monkeypatch.setitem(sys.modules, "agent.memory_provider", memory_provider_module)
+    monkeypatch.setitem(sys.modules, "tools", tools_module)
+    monkeypatch.setitem(sys.modules, "tools.registry", registry_module)
+    provider_module = importlib.import_module("mnemoir_provenance.hermes_plugin.provider")
+    provider = provider_module.CouncilMemoryCoreProvider()
     provider.initialize("public-regression", hermes_home=tmp_path, agent_identity="demo")
     status = json.loads(provider.handle_tool_call("cmc_writeback_status", {}))
     assert status["unresolved_operation_count"] == 0
