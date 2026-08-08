@@ -8,7 +8,7 @@ Mnemoir Provenance is a local Python and SQLite memory layer for agents, assista
 
 When evidence is unavailable, Mnemoir keeps that gap visible instead of quietly substituting an uncited result.
 
-**0.2.2 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
+**0.2.3 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
 
 - [Quick start](#quick-start)
 - [How it works](#from-source-to-recall)
@@ -100,7 +100,7 @@ python -m pip install --upgrade mnemoir-provenance
 For a reproducible installation of this exact release, pin the version; `--upgrade` is unnecessary with the exact pin:
 
 ```bash
-python -m pip install 'mnemoir-provenance==0.2.2'
+python -m pip install 'mnemoir-provenance==0.2.3'
 ```
 
 Run the standalone CLI flow directly from the installed package:
@@ -134,7 +134,7 @@ Clone/editable installation is not required for normal use.
 
 ## Optional Hermes reference adapter
 
-Hermes and Mnemoir must be importable in the **same Python runtime**. In a fresh shared environment:
+Hermes and Mnemoir must be importable in the **same Python runtime**. Mnemoir 0.2.3 is maintained against Hermes Agent 0.19.1 and exact official revision `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`. In a fresh shared environment:
 
 ```bash
 python -m pip install 'mnemoir-provenance[hermes]'
@@ -172,7 +172,11 @@ mnemoir plugin bootstrap-profile \
   --verify-query "distinct phrase in the fixture"
 ```
 
-For v0.2.2, the controlled fixture must contain both immediate non-symlink `MEMORY.md` and `USER.md` inputs; either file may be minimal, but an absent configured source is reported as degraded and the bootstrap fails closed. Output validates against [`plugin-bootstrap-profile-result.schema.json`](docs/reference/schemas/plugin-bootstrap-profile-result.schema.json). It reports counts, citations and side-effect booleans—not source text or absolute paths. `bootstrap_no_cited_match` preserves committed idempotent evidence; rerun with a query matching the controlled fixture. The command never promotes durable memory or performs writeback.
+For v0.2.3, the controlled fixture must contain both immediate non-symlink `MEMORY.md` and `USER.md` inputs; either file may be minimal, but an absent configured source is reported as degraded and the bootstrap fails closed. Output validates against [`plugin-bootstrap-profile-result.schema.json`](docs/reference/schemas/plugin-bootstrap-profile-result.schema.json). It reports counts, citations and side-effect booleans—not source text or absolute paths. `bootstrap_no_cited_match` preserves committed idempotent evidence; rerun with a query matching the controlled fixture. The command never promotes durable memory or performs writeback.
+
+Trusted primary conversations may recall and mutate only according to configured policy. Cron, flush, subagent, background/review, unknown, and contradictory contexts fail closed before writable initialization; prohibited recall is explicitly disabled/degraded. Provider JSON configuration is an owner-owned regular file at mode `0600`. The SQLite database and imported memories are local plaintext unless the operator supplies filesystem or volume encryption. Default `writeback_mode=propose_only`; live overflow trim requires explicit durable policy.
+
+The public provider exposes exactly 12 tools: `cmc_context`, `cmc_search`, `cmc_sources`, `cmc_propose_memory`, `cmc_overflow_pressure`, `cmc_overflow_plan`, `cmc_ingest_profile_markdown`, `cmc_sync_turn_proposal`, `cmc_import_honcho_legacy`, `cmc_import_session_search`, `cmc_import_obsidian_vault`, and `cmc_writeback_status`. The `cmc_*` tool identifiers are retained legacy API names under the public `mnemoir_provenance` provider; they are documented explicitly and are not silently renamed. Advanced list-valued configuration includes `controlled_profile_roots`, `controlled_turn_roots`, `controlled_honcho_import_roots`, `controlled_session_search_roots`, and `controlled_obsidian_vault_roots`.
 
 ### Disable, rollback and retain data
 
@@ -218,7 +222,7 @@ Read [SECURITY.md](SECURITY.md), the [security model](docs/operations/security-m
 
 ## Project status
 
-The repository currently identifies as Mnemoir Provenance 0.2.2 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets. Package metadata permits installation on newer Python 3 versions, but this version makes no support claim beyond 3.12. Linux is the tested and supported candidate environment. The package is MIT licensed.
+The repository currently identifies as Mnemoir Provenance 0.2.3 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets; package metadata excludes Python 3.13 until it is added to CI. Linux is the tested and supported candidate environment. The package is MIT licensed.
 
 Mnemoir Provenance is an independent open-source project and is not affiliated with other projects using similar names.
 

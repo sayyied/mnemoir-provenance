@@ -42,8 +42,8 @@ def _job_payload(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return payload
 
 
-def service_status(conn: sqlite3.Connection, *, repo_root=None, projection_root=None) -> dict[str, Any]:
-    health = health_report(conn, repo_root=repo_root, projection_root=projection_root)
+def service_status(conn: sqlite3.Connection, *, repo_root=None, projection_root=None, verify_integrity: bool = True) -> dict[str, Any]:
+    health = health_report(conn, repo_root=repo_root, projection_root=projection_root, verify_integrity=verify_integrity)
     job = _service_job(conn)
     service_state = "stopped"
     if job is not None:

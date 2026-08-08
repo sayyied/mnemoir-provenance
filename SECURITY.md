@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest published release is supported. The supported release is 0.2.2.
+Only the latest published release is supported. The supported release is 0.2.3.
 
 ## Reporting
 

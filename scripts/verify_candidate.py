@@ -14,7 +14,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 errors: list[str] = []
 checks: dict[str, object] = {}
-version = "0.2.2"
+version = "0.2.3"
 
 
 def sha256(path: Path) -> str:

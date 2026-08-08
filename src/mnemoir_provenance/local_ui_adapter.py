@@ -217,7 +217,7 @@ class LocalUIAdapter:
 
     def _home(self, conn: sqlite3.Connection, *, query: str, limit: int) -> dict[str, Any]:
         views = {name: operator_api_view(conn, name, query=query, projection_root=self.projection_root, limit=limit)["data"] for name in ("sources", "proposals", "council", "autonomy", "hermes", "projection", "approval-needed", "scope")}
-        service = service_status(conn, repo_root=self.repo_root, projection_root=self.projection_root)
+        service = service_status(conn, repo_root=self.repo_root, projection_root=self.projection_root, verify_integrity=False)
         attention = list(views["approval-needed"].get("items", []))
         existing = {(item.get("kind"), item.get("id")) for item in attention}
         for review in views["council"].get("queues", {}).get("reviews", []):
@@ -261,7 +261,7 @@ class LocalUIAdapter:
         views = {name: operator_api_view(conn, name, projection_root=self.projection_root, limit=limit)["data"] for name in ("sources", "scope", "hermes", "projection")}
         benchmarks = benchmark_status(conn, limit=min(limit, 20))
         writebacks = _rows(conn, "SELECT operation_id, profile_id, target_path_hash, state, operation_type, proposal_id, evidence_state, audit_state, rollback_available, created_at, updated_at, completed_at, error_code FROM writeback_operations ORDER BY created_at DESC LIMIT ?", (limit,))
-        service = service_status(conn, repo_root=self.repo_root, projection_root=self.projection_root)
+        service = service_status(conn, repo_root=self.repo_root, projection_root=self.projection_root, verify_integrity=False)
         child_states = [_semantic_status(views[name].get("status")) for name in views]
         child_states.extend((_semantic_status(benchmarks.get("status")), _semantic_status(service.get("status"))))
         overall = max((state for state in child_states if state), key=lambda state: _SEVERITY.get(str(state), 6), default="healthy")

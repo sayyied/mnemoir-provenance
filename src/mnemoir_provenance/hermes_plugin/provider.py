@@ -9,12 +9,14 @@ other writeback modes remain non-mutating.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import stat
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
@@ -43,6 +45,69 @@ _DEFAULT_RECALL_MODE = "hybrid"
 _DEFAULT_SYNC_TURN_POLICY = "audit_only"
 _DEFAULT_WRITEBACK_MODE = "propose_only"
 _DEFAULT_CONTEXT_BUDGET_CHARS = 4000
+_PROHIBITED_AGENT_CONTEXTS = frozenset(
+    {
+        "cron",
+        "flush",
+        "subagent",
+        "background",
+        "background_task",
+        "background-task",
+        "review",
+        "background_review",
+        "background-review",
+    }
+)
+_PROHIBITED_PLATFORMS = frozenset({"cron"})
+
+
+class ExecutionContextDecision(NamedTuple):
+    """Immutable fail-closed provider execution decision."""
+
+    agent_context: str
+    platform: str
+    primary_trusted: bool
+    recall_allowed: bool
+    mutation_allowed: bool
+    reason: str
+
+
+
+def _normalize_context_value(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+
+
+def classify_execution_context(*, agent_context: Any, platform: Any) -> ExecutionContextDecision:
+    """Classify provider authority before any writable resource is opened."""
+
+    normalized_context = _normalize_context_value(agent_context)
+    normalized_platform = _normalize_context_value(platform) or "unknown"
+    platform_prohibited = normalized_platform in _PROHIBITED_PLATFORMS
+    if normalized_context == "primary" and platform_prohibited:
+        reason = "contradictory_execution_context"
+        trusted = False
+    elif normalized_context in _PROHIBITED_AGENT_CONTEXTS:
+        reason = "prohibited_agent_context"
+        trusted = False
+    elif normalized_context != "primary":
+        reason = "unknown_agent_context"
+        trusted = False
+    elif normalized_platform in {"", "unknown"}:
+        reason = "unknown_platform"
+        trusted = False
+    else:
+        reason = "trusted_primary"
+        trusted = True
+    return ExecutionContextDecision(
+        agent_context=normalized_context or "unknown",
+        platform=normalized_platform,
+        primary_trusted=trusted,
+        recall_allowed=trusted,
+        mutation_allowed=trusted,
+        reason=reason,
+    )
+
 
 _SESSION_SEARCH_IMPORT_SCHEMA = {
     "name": "cmc_import_session_search",
@@ -181,6 +246,70 @@ _INGEST_PROFILE_SCHEMA = {
 }
 
 
+def _open_owned_config_dir(home: Path, *, create: bool = False) -> int:
+    if create and not home.exists():
+        home.mkdir(parents=True, mode=0o700)
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(home, flags)
+    except OSError as exc:
+        raise RuntimeError("unsafe_config_parent") from exc
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+        os.close(fd)
+        raise RuntimeError("unsafe_config_parent")
+    return fd
+
+
+
+def _read_owned_config_text(
+    home: Path,
+    filename: str,
+    *,
+    require_private_mode: bool,
+) -> str | None:
+    dir_fd = _open_owned_config_dir(home)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        try:
+            fd = os.open(filename, flags, dir_fd=dir_fd)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise RuntimeError("unsafe_config_target") from exc
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+                raise RuntimeError("unsafe_config_target")
+            if require_private_mode and stat.S_IMODE(info.st_mode) != 0o600:
+                raise RuntimeError("unsafe_config_mode")
+            with os.fdopen(fd, "r", encoding="utf-8", errors="strict", closefd=False) as stream:
+                return stream.read()
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dir_fd)
+
+
+def _open_config_lock(dir_fd: int) -> int:
+    name = ".mnemoir_provenance.lock"
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(name, flags, 0o600, dir_fd=dir_fd)
+    except OSError as exc:
+        raise RuntimeError("unsafe_config_lock") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+            raise RuntimeError("unsafe_config_lock")
+        os.fchmod(fd, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
 def _load_yaml_council_config(path: Path) -> dict[str, Any]:
     """Parse the minimal non-secret mnemoir_provenance config block Hermes loads.
 
@@ -188,12 +317,13 @@ def _load_yaml_council_config(path: Path) -> dict[str, Any]:
     deliberately avoids adding a YAML dependency or interpreting unrelated
     config/provider/auth sections.
     """
-    if not path.exists():
+    text = _read_owned_config_text(path.parent, path.name, require_private_mode=False)
+    if text is None:
         return {}
     result: dict[str, Any] = {}
     in_block = False
     current_list_key: str | None = None
-    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw_line in text.splitlines():
         if not raw_line.strip() or raw_line.lstrip().startswith("#"):
             continue
         if not raw_line.startswith(" "):
@@ -250,13 +380,17 @@ def _load_config(hermes_home: str | Path | None = None) -> dict[str, Any]:
         except Exception:
             cfg["config_error"] = "invalid_mnemoir_provenance_yaml"
         path = home / "mnemoir_provenance.json"
-        if path.exists():
-            try:
-                loaded = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    cfg.update({k: v for k, v in loaded.items() if v is not None})
-            except Exception:
-                cfg["config_error"] = "invalid_mnemoir_provenance_json"
+        try:
+            config_text = _read_owned_config_text(home, path.name, require_private_mode=True)
+            if config_text is not None:
+                loaded = json.loads(config_text)
+                if not isinstance(loaded, dict):
+                    raise ValueError("config root must be an object")
+                cfg.update({k: v for k, v in loaded.items() if v is not None})
+        except RuntimeError as exc:
+            cfg["config_error"] = str(exc)
+        except Exception:
+            cfg["config_error"] = "invalid_mnemoir_provenance_json"
     return cfg
 
 
@@ -286,6 +420,7 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         self._hermes_home = ""
         self._platform = ""
         self._agent_identity = "default"
+        self._execution_context = classify_execution_context(agent_context="", platform="")
         self._conn = None
         self._conn_thread_id: int | None = None
         self._last_status: dict[str, Any] = {"status": "not_initialized"}
@@ -311,6 +446,8 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         if not hermes_home:
             return False
         cfg = _load_config(hermes_home)
+        if cfg.get("config_error"):
+            return False
         db_path = str(cfg.get("db_path") or _default_db_path(hermes_home)).strip()
         if not db_path:
             return False
@@ -335,25 +472,86 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         ]
 
     def save_config(self, values: dict[str, Any], hermes_home: str | Path) -> None:
-        """Write non-secret plugin config. Does not set memory.provider."""
-        path = Path(hermes_home) / "mnemoir_provenance.json"
-        existing: dict[str, Any] = {}
-        if path.exists():
+        """Persist owner-only provider config atomically without following links."""
+        home = Path(hermes_home).expanduser()
+        dir_fd = _open_owned_config_dir(home, create=True)
+        lock_fd: int | None = None
+        filename = "mnemoir_provenance.json"
+        temp_name = f".{filename}.{os.getpid()}.{os.urandom(8).hex()}.tmp"
+        try:
+            lock_fd = _open_config_lock(dir_fd)
+            existing_text = _read_owned_config_text(home, filename, require_private_mode=False)
+            if existing_text is None:
+                existing: dict[str, Any] = {}
+            else:
+                try:
+                    existing = json.loads(existing_text)
+                except Exception as exc:
+                    raise RuntimeError("invalid_mnemoir_provenance_json") from exc
+                if not isinstance(existing, dict):
+                    raise RuntimeError("invalid_mnemoir_provenance_json")
+            existing.update(values)
+            payload = (json.dumps(existing, indent=2, sort_keys=True) + "\n").encode("utf-8")
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            temp_fd = os.open(temp_name, flags, 0o600, dir_fd=dir_fd)
             try:
-                existing = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                existing = {}
-        existing.update(values)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(existing, indent=2, sort_keys=True), encoding="utf-8")
+                os.fchmod(temp_fd, 0o600)
+                written = 0
+                while written < len(payload):
+                    written += os.write(temp_fd, payload[written:])
+                os.fsync(temp_fd)
+            finally:
+                os.close(temp_fd)
+            os.replace(temp_name, filename, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+            os.fsync(dir_fd)
+            readback = _read_owned_config_text(home, filename, require_private_mode=True)
+            if readback is None or json.loads(readback) != existing:
+                raise RuntimeError("config_readback_mismatch")
+        finally:
+            try:
+                os.unlink(temp_name, dir_fd=dir_fd)
+            except FileNotFoundError:
+                pass
+            finally:
+                if lock_fd is not None:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                    os.close(lock_fd)
+                os.close(dir_fd)
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         self._session_id = session_id or ""
         self._hermes_home = str(kwargs.get("hermes_home") or os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
         self._platform = str(kwargs.get("platform") or "unknown")
         self._agent_identity = str(kwargs.get("agent_identity") or "default")
+        self._execution_context = classify_execution_context(
+            agent_context=kwargs.get("agent_context"),
+            platform=self._platform,
+        )
         self._config = _load_config(self._hermes_home)
         self._db_path = str(self._config.get("db_path") or _default_db_path(self._hermes_home))
+        context_status = dict(self._execution_context._asdict())
+        if self._config.get("config_error"):
+            self._last_status = {
+                "status": "disabled",
+                "provider": _PLUGIN_NAME,
+                "initialized": False,
+                "error": self._config["config_error"],
+                "execution_context": context_status,
+            }
+            raise RuntimeError(str(self._config["config_error"]))
+        if not self._execution_context.mutation_allowed:
+            self._last_status = {
+                "status": "disabled",
+                "provider": _PLUGIN_NAME,
+                "selected_memory_provider": _PLUGIN_NAME,
+                "selected_provider_active": True,
+                "initialized": True,
+                "execution_context": context_status,
+                "mutation_performed": False,
+                "recall_status": "disabled_degraded",
+                "writeback_mode": self._config.get("writeback_mode", _DEFAULT_WRITEBACK_MODE),
+            }
+            return
         conn = self._open_operation_conn()
         try:
             audit_id = write_audit_event(
@@ -394,6 +592,7 @@ class CouncilMemoryCoreProvider(MemoryProvider):
             "selected_provider_active": True,
             "initialized": True,
             "audit_id": audit_id,
+            "execution_context": context_status,
             "mode": self._config.get("mode", _DEFAULT_MODE),
             "recall_mode": self._config.get("recall_mode", _DEFAULT_RECALL_MODE),
             "sync_turn_policy": self._config.get("sync_turn_policy", _DEFAULT_SYNC_TURN_POLICY),
@@ -441,6 +640,13 @@ class CouncilMemoryCoreProvider(MemoryProvider):
 
     def _run_live_overflow_trim(self, *, trigger: str) -> dict[str, Any]:
         """Run bounded catch-up through the protected overflow coordinator."""
+        if not self._execution_context.mutation_allowed:
+            return {
+                "status": "disabled",
+                "trigger": trigger,
+                "reason": self._execution_context.reason,
+                "file_mutation_performed": False,
+            }
         if self._config.get("writeback_mode", _DEFAULT_WRITEBACK_MODE) != "live_overflow_trim":
             return {"status": "disabled", "trigger": trigger, "file_mutation_performed": False}
         conn = self._open_operation_conn()
@@ -485,6 +691,8 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         """
         if not self._db_path:
             raise RuntimeError("mnemoir_provenance_provider_not_initialized")
+        if not self._execution_context.mutation_allowed:
+            raise RuntimeError("execution_context_denied")
         conn = connect(self._db_path)
         initialize_database(conn)
         return conn
@@ -501,6 +709,8 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         if self._conn is None:
             if not self._db_path:
                 raise RuntimeError("mnemoir_provenance_provider_not_initialized")
+            if not self._execution_context.mutation_allowed:
+                raise RuntimeError("execution_context_denied")
             self._conn = connect(self._db_path)
             self._conn_thread_id = current_thread_id
             initialize_database(self._conn)
@@ -509,6 +719,11 @@ class CouncilMemoryCoreProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         if not self._last_status.get("initialized"):
             return ""
+        if not self._execution_context.recall_allowed:
+            return (
+                "Mnemoir Provenance is disabled/degraded in this execution context; "
+                "no recall or durable mutation is permitted."
+            )
         mode = self._config.get("mode", _DEFAULT_MODE)
         return (
             "Mnemoir Provenance is the selected local memory provider for this Hermes profile. "
@@ -546,6 +761,11 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         return tuple(safe or ["hermes_markdown_overflow", "hermes_profile_memory"])
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        if not self._execution_context.recall_allowed:
+            return (
+                "Mnemoir Provenance: disabled/degraded recall "
+                f"({self._execution_context.reason}); no durable state was opened."
+            )
         if self._config.get("recall_mode", _DEFAULT_RECALL_MODE) not in {"context", "hybrid"}:
             return ""
         conn = self._open_operation_conn()
@@ -559,6 +779,8 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         return None
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "", messages: Optional[List[Dict[str, Any]]] = None) -> None:
+        if not self._execution_context.mutation_allowed:
+            return
         # The provider can remain alive for days while Hermes memory tooling grows
         # profile Markdown. Re-run the bounded coordinator at the completed-turn
         # lifecycle boundary so live trim does not depend on a gateway restart.
@@ -598,6 +820,7 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                     )
                 result.update({"provider": _PLUGIN_NAME, "sync_turn_policy": policy})
                 self._last_status = result
+                self._last_status["execution_context"] = dict(self._execution_context._asdict())
                 if live_overflow_status is not None:
                     self._last_status["live_overflow_trim"] = live_overflow_status
                 if live_overflow_audit_id is not None:
@@ -668,6 +891,16 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         )
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs: Any) -> str:
+        if not self._execution_context.mutation_allowed:
+            return _json_result(
+                {
+                    "status": "disabled",
+                    "error": "execution_context_denied",
+                    "provider": _PLUGIN_NAME,
+                    "reason": self._execution_context.reason,
+                    "mutation_performed": False,
+                }
+            )
         conn = None
         try:
             conn = self._open_operation_conn()
@@ -904,6 +1137,40 @@ class CouncilMemoryCoreProvider(MemoryProvider):
 
     def on_session_switch(self, new_session_id: str, **kwargs: Any) -> None:
         self._session_id = new_session_id or self._session_id
+
+    def on_turn_start(self, turn_number: int, message: str, **kwargs: Any) -> None:
+        if not self._execution_context.mutation_allowed:
+            return
+
+    def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+        if not self._execution_context.mutation_allowed:
+            return
+
+    def on_pre_compress(self, messages: List[Dict[str, Any]]) -> str:
+        if not self._execution_context.mutation_allowed:
+            return ""
+        return ""
+
+    def on_memory_write(
+        self,
+        action: str,
+        target: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self._execution_context.mutation_allowed:
+            return
+
+    def on_delegation(
+        self,
+        task: str,
+        result: str,
+        *,
+        child_session_id: str = "",
+        **kwargs: Any,
+    ) -> None:
+        if not self._execution_context.mutation_allowed:
+            return
 
     def shutdown(self) -> None:
         if self._conn is not None:
