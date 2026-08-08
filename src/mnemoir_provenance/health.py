@@ -70,23 +70,24 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
     return {str(row["name"] if isinstance(row, sqlite3.Row) else row[0]) for row in rows}
 
 
-def db_health(conn: sqlite3.Connection) -> dict[str, Any]:
+def db_health(conn: sqlite3.Connection, *, verify_integrity: bool = True) -> dict[str, Any]:
     try:
         conn.execute("SELECT 1").fetchone()
         tables = _table_names(conn)
         missing = sorted(_REQUIRED_TABLES - tables)
         migration = conn.execute("SELECT version, name, success, error FROM schema_migrations ORDER BY version DESC LIMIT 1").fetchone() if "schema_migrations" in tables else None
         migration_ok = bool(migration and migration["success"] == 1 and migration["version"] == "0001")
-        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0] if verify_integrity else "not_checked"
     except Exception as error:  # pragma: no cover - exact sqlite text varies by version
         result = {"status": "error", "db_openable": False, "schema_valid": False, "error": "db_health_failed", "detail": str(error)}
         return _safe(result)
-    status = "ok" if not missing and migration_ok and integrity == "ok" else "error"
+    status = "ok" if not missing and migration_ok and integrity in {"ok", "not_checked"} else "error"
     result = {
         "status": status,
         "db_openable": True,
         "schema_valid": not missing and migration_ok,
-        "integrity_check": "ok" if integrity == "ok" else "error",
+        "integrity_check": "ok" if integrity == "ok" else "not_checked" if integrity == "not_checked" else "error",
+        "integrity_check_performed": verify_integrity,
         "migration": row_to_dict(migration) if migration else None,
         "missing_required_tables": missing,
     }
@@ -208,9 +209,9 @@ def projection_readiness_health(projection_root: str | Path | None = None) -> di
     return _safe(result)
 
 
-def health_report(conn: sqlite3.Connection, *, repo_root: Path | None = None, projection_root: str | Path | None = None) -> dict[str, Any]:
+def health_report(conn: sqlite3.Connection, *, repo_root: Path | None = None, projection_root: str | Path | None = None, verify_integrity: bool = True) -> dict[str, Any]:
     checks = {
-        "db": db_health(conn),
+        "db": db_health(conn, verify_integrity=verify_integrity),
         "sources": source_registry_health(conn, repo_root=repo_root),
         "policy": policy_health(conn),
         "retrieval_scoring": retrieval_health(conn),

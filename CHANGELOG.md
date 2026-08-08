@@ -2,6 +2,14 @@
 
 All notable user-visible changes are recorded here.
 
+## 0.2.3 — 2026-08-07
+
+- Added one fail-closed Hermes execution-context policy across initialization, recall, synchronization, overflow/writeback, lifecycle hooks, and all 12 provider tools.
+- Preserved trusted-primary cited recall and proposal/audit behavior while making cron, flush, subagent, background/review, unknown, and contradictory contexts zero-mutation.
+- Hardened provider configuration to owner-only `0600` atomic, symlink-safe, ownership-validated, readback-verified persistence with concurrent-writer serialization and failure cleanup.
+- Bounded compatibility to Python 3.11/3.12 and Hermes Agent 0.19.1, with CI pinned to exact official revision `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`.
+- Completed public operator guidance for all 12 retained `cmc_*` tool identifiers, local plaintext storage, retention/removal, disablement, writeback defaults, and advanced list configuration.
+
 ## 0.2.2 — 2026-08-01
 
 - Corrected Hermes writeback health reporting so profile-scoped historical partial trims stop counting as unresolved after a later successful write, while genuine recovery-required states remain visible.

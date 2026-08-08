@@ -93,10 +93,12 @@ def test_writeback_status_distinguishes_superseded_partials_from_hard_recovery(t
         _insert_writeback(conn, "success", profile_id="demo", state="completed")
         _insert_writeback(conn, "other-profile", profile_id="other", state="completed_partial")
 
-    (tmp_path / "mnemoir_provenance.json").write_text(
+    config_path = tmp_path / "mnemoir_provenance.json"
+    config_path.write_text(
         json.dumps({"db_path": str(db_path), "writeback_mode": "live_overflow_trim"}),
         encoding="utf-8",
     )
+    config_path.chmod(0o600)
     agent_module = ModuleType("agent")
     agent_module.__path__ = []
     memory_provider_module = ModuleType("agent.memory_provider")
@@ -111,7 +113,13 @@ def test_writeback_status_distinguishes_superseded_partials_from_hard_recovery(t
     monkeypatch.setitem(sys.modules, "tools.registry", registry_module)
     provider_module = importlib.import_module("mnemoir_provenance.hermes_plugin.provider")
     provider = provider_module.CouncilMemoryCoreProvider()
-    provider.initialize("public-regression", hermes_home=tmp_path, agent_identity="demo")
+    provider.initialize(
+        "public-regression",
+        hermes_home=tmp_path,
+        agent_identity="demo",
+        platform="test",
+        agent_context="primary",
+    )
     status = json.loads(provider.handle_tool_call("cmc_writeback_status", {}))
     assert status["unresolved_operation_count"] == 0
     assert status["historical_partial_operation_count"] == 1
