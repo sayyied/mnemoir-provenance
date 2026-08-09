@@ -8,7 +8,16 @@ import sqlite3
 import stat
 from typing import Any
 
+from .audit import write_audit_event
 from .db import json_dumps, now_utc, row_to_dict
+
+
+_LEGACY_SYNTHETIC_SOURCE_ID = "local_file_configured_missing"
+_LEGACY_SYNTHETIC_SOURCE_SIGNATURE = (
+    "file",
+    "Configured local file source unavailable sentinel",
+    "file://configured-local-source-missing.txt",
+)
 
 
 @dataclass(frozen=True)
@@ -56,7 +65,6 @@ def _controlled_regular_file_available(repo_root: Path, relative_path: str) -> b
 
 def configured_sources(repo_root: Path) -> list[SourceConfig]:
     docs_available = _controlled_regular_file_available(repo_root, "docs/index.md")
-    missing_available = _controlled_regular_file_available(repo_root, "data/configured-local-source-missing.txt")
     docs_health = "healthy" if docs_available else "unavailable"
     return [
         SourceConfig(
@@ -73,25 +81,74 @@ def configured_sources(repo_root: Path) -> list[SourceConfig]:
             provenance_rules={"pointer_policy": "relative_repo_path", "source_family": "repo_docs"},
             privacy_policy={"default_visibility": "internal", "redact_absolute_paths": True},
         ),
-        SourceConfig(
-            source_id="local_file_configured_missing",
-            source_type="file",
-            display_name="Configured local file source unavailable sentinel",
-            external_ref="file://configured-local-source-missing.txt",
-            authority_level="secondary",
-            read_authority="read_only",
-            write_authority="none",
-            health="healthy" if missing_available else "unavailable",
-            freshness_seconds=0 if missing_available else None,
-            failure_reason=None if missing_available else "configured local file source is unavailable",
-            provenance_rules={"pointer_policy": "relative_repo_path", "source_family": "file"},
-            privacy_policy={"default_visibility": "private", "redact_absolute_paths": True},
-        ),
     ]
+
+
+def _retire_legacy_synthetic_source(conn: sqlite3.Connection) -> bool:
+    """Remove only the exact data-free compat-01 degradation sentinel.
+
+    The sentinel was useful in an early fixture but made every production recall
+    appear degraded.  Existing databases are upgraded conservatively: identity
+    must match exactly and no source-backed records may depend on the row.
+    """
+    row = conn.execute(
+        """
+        SELECT source_type, display_name, external_ref
+        FROM sources
+        WHERE source_id=?
+        """,
+        (_LEGACY_SYNTHETIC_SOURCE_ID,),
+    ).fetchone()
+    if row is None or tuple(row) != _LEGACY_SYNTHETIC_SOURCE_SIGNATURE:
+        return False
+    dependent_count = 0
+    tables = conn.execute(
+        "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    for (table,) in tables:
+        if table == "sources":
+            continue
+        source_columns = {
+            str(column[0])
+            for column in conn.execute("SELECT name FROM pragma_table_xinfo(?)", (table,)).fetchall()
+            if str(column[0]) in {"source_id", "target_source_id"}
+        }
+        quoted_table = '"' + str(table).replace('"', '""') + '"'
+        for column in source_columns:
+            quoted_column = '"' + column.replace('"', '""') + '"'
+            dependent_count += int(
+                conn.execute(
+                    f"SELECT COUNT(*) FROM {quoted_table} WHERE {quoted_column}=?",
+                    (_LEGACY_SYNTHETIC_SOURCE_ID,),
+                ).fetchone()[0]
+            )
+    dependent_count += int(
+        conn.execute(
+            """
+            SELECT COUNT(*) FROM provenance_edges
+            WHERE (from_type='source' AND from_id=?)
+               OR (to_type='source' AND to_id=?)
+            """,
+            (_LEGACY_SYNTHETIC_SOURCE_ID, _LEGACY_SYNTHETIC_SOURCE_ID),
+        ).fetchone()[0]
+    )
+    if dependent_count:
+        return False
+    conn.execute("DELETE FROM sources WHERE source_id=?", (_LEGACY_SYNTHETIC_SOURCE_ID,))
+    write_audit_event(
+        conn,
+        event_type="source.retire_legacy_synthetic_sentinel",
+        target_type="source",
+        target_id=_LEGACY_SYNTHETIC_SOURCE_ID,
+        status="ok",
+        metadata={"reason": "retired data-free compat-01 synthetic degradation source"},
+    )
+    return True
 
 
 def register_sources(conn: sqlite3.Connection, repo_root: Path) -> list[dict[str, Any]]:
     timestamp = now_utc()
+    _retire_legacy_synthetic_source(conn)
     configs = configured_sources(repo_root)
     for source in configs:
         conn.execute(

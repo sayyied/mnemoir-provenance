@@ -2,7 +2,14 @@
 
 All notable user-visible changes are recorded here.
 
-## 0.2.3 — 2026-08-07
+## 0.2.4 — 2026-08-08
+
+- Removed the legacy synthetic unavailable-source sentinel from production defaults so healthy configured sources no longer make every recall appear degraded.
+- Added a conservative existing-database upgrade that retires only the exact data-free legacy sentinel and preserves nonmatching or source-backed records.
+- Preserved explicit degraded-coverage behavior through dedicated synthetic tests rather than a permanently unhealthy production source.
+- Corrected synthetic degraded-source fixture wiring and the local retrieval benchmark query so those proofs exercise real degradation and retrieval rather than passing through the retired sentinel.
+
+## 0.2.3 — 2026-08-08
 
 - Added one fail-closed Hermes execution-context policy across initialization, recall, synchronization, overflow/writeback, lifecycle hooks, and all 12 provider tools.
 - Preserved trusted-primary cited recall and proposal/audit behavior while making cron, flush, subagent, background/review, unknown, and contradictory contexts zero-mutation.
