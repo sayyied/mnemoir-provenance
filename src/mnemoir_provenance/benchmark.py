@@ -464,7 +464,7 @@ def _case_b04(conn: sqlite3.Connection, _case: dict[str, Any]) -> dict[str, Any]
     score = apply_scoring_scenario(conn, memory_id=written["memory_id"], scenario="unsupported_hot_signal", evidence_id=ids["evidence_id"])
     summary = score_summary(conn, written["memory_id"])
     rebuild = rebuild_retrieval_index(conn)
-    result = retrieve(conn, "heat attention truth authority", mode="hybrid", limit=5)
+    result = retrieve(conn, "phase twelve synthetic recall anchor", mode="hybrid", limit=5)
     passed = summary["heat_is_truth_authority"] is False and rebuild["embeddings_indexed"] >= 1 and result["status"] in {"ok", "degraded"}
     metrics = {
         "ndcg_at_5": 1.0 if result.get("result_count", 0) else 0.0,
