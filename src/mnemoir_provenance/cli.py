@@ -1845,7 +1845,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None=None) -> int:
     parser = build_parser()
-    parser.add_argument('--version', action='version', version='%(prog)s 0.2.4')
+    parser.add_argument('--version', action='version', version='%(prog)s 0.2.5')
     args = parser.parse_args(argv)
     return args.func(args)
 if __name__ == '__main__':

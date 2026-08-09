@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemoir-provenance"
-version = "0.2.4"
+version = "0.2.5"
 description = "Source-grounded memory for agents that learn over time."
 requires-python = ">=3.11,<3.13"
 readme = "README.md"

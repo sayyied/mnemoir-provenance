@@ -8,7 +8,7 @@ Mnemoir Provenance is a local Python and SQLite memory layer for agents, assista
 
 When evidence is unavailable, Mnemoir keeps that gap visible instead of quietly substituting an uncited result.
 
-**0.2.4 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
+**0.2.5 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
 
 - [Quick start](#quick-start)
 - [How it works](#from-source-to-recall)
@@ -100,7 +100,7 @@ python -m pip install --upgrade mnemoir-provenance
 For a reproducible installation of this exact release, pin the version; `--upgrade` is unnecessary with the exact pin:
 
 ```bash
-python -m pip install 'mnemoir-provenance==0.2.4'
+python -m pip install 'mnemoir-provenance==0.2.5'
 ```
 
 Run the standalone CLI flow directly from the installed package:
@@ -134,7 +134,7 @@ Clone/editable installation is not required for normal use.
 
 ## Optional Hermes reference adapter
 
-Hermes and Mnemoir must be importable in the **same Python runtime**. Mnemoir 0.2.4 is maintained against Hermes Agent 0.19.1 and exact official revision `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`. In a fresh shared environment:
+Hermes and Mnemoir must be importable in the **same Python runtime**. Mnemoir 0.2.5 is maintained against Hermes Agent 0.19.1 and exact official revision `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`. In a fresh shared environment:
 
 ```bash
 python -m pip install 'mnemoir-provenance[hermes]'
@@ -222,7 +222,7 @@ Read [SECURITY.md](SECURITY.md), the [security model](docs/operations/security-m
 
 ## Project status
 
-The repository currently identifies as Mnemoir Provenance 0.2.4 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets; package metadata excludes Python 3.13 until it is added to CI. Linux is the tested and supported candidate environment. The package is MIT licensed.
+The repository currently identifies as Mnemoir Provenance 0.2.5 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets; package metadata excludes Python 3.13 until it is added to CI. Linux is the tested and supported candidate environment. The package is MIT licensed.
 
 Mnemoir Provenance is an independent open-source project and is not affiliated with other projects using similar names.
 

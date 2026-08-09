@@ -17,6 +17,26 @@ _LEGACY_SYNTHETIC_SOURCE_SIGNATURE = (
     "file",
     "Configured local file source unavailable sentinel",
     "file://configured-local-source-missing.txt",
+    None,
+    None,
+    "read_only",
+    "none",
+    "secondary",
+    "unavailable",
+    None,
+    None,
+    "configured local file source is unavailable",
+    json_dumps({"pointer_policy": "relative_repo_path", "source_family": "file"}),
+    json_dumps({"default_visibility": "private", "redact_absolute_paths": True}),
+)
+
+_POLYMORPHIC_SOURCE_REFERENCE_PATTERNS = (
+    ("target_type", "target_id", ("source",)),
+    ("scope_type", "scope_id", ("source",)),
+    ("ref_type", "ref_id", ("source",)),
+    ("from_type", "from_id", ("source",)),
+    ("to_type", "to_id", ("source",)),
+    ("table_name", "row_pk", ("source", "sources")),
 )
 
 
@@ -93,7 +113,10 @@ def _retire_legacy_synthetic_source(conn: sqlite3.Connection) -> bool:
     """
     row = conn.execute(
         """
-        SELECT source_type, display_name, external_ref
+        SELECT source_type, display_name, external_ref, profile_id,
+               overflow_kind, read_authority, write_authority, authority_level,
+               health, last_sync_at, freshness_seconds, failure_reason,
+               provenance_rules_json, privacy_policy_json
         FROM sources
         WHERE source_id=?
         """,
@@ -108,13 +131,12 @@ def _retire_legacy_synthetic_source(conn: sqlite3.Connection) -> bool:
     for (table,) in tables:
         if table == "sources":
             continue
-        source_columns = {
+        columns = {
             str(column[0])
             for column in conn.execute("SELECT name FROM pragma_table_xinfo(?)", (table,)).fetchall()
-            if str(column[0]) in {"source_id", "target_source_id"}
         }
         quoted_table = '"' + str(table).replace('"', '""') + '"'
-        for column in source_columns:
+        for column in columns & {"source_id", "target_source_id"}:
             quoted_column = '"' + column.replace('"', '""') + '"'
             dependent_count += int(
                 conn.execute(
@@ -122,16 +144,19 @@ def _retire_legacy_synthetic_source(conn: sqlite3.Connection) -> bool:
                     (_LEGACY_SYNTHETIC_SOURCE_ID,),
                 ).fetchone()[0]
             )
-    dependent_count += int(
-        conn.execute(
-            """
-            SELECT COUNT(*) FROM provenance_edges
-            WHERE (from_type='source' AND from_id=?)
-               OR (to_type='source' AND to_id=?)
-            """,
-            (_LEGACY_SYNTHETIC_SOURCE_ID, _LEGACY_SYNTHETIC_SOURCE_ID),
-        ).fetchone()[0]
-    )
+        for type_column, id_column, source_markers in _POLYMORPHIC_SOURCE_REFERENCE_PATTERNS:
+            if type_column not in columns or id_column not in columns:
+                continue
+            quoted_type = '"' + type_column.replace('"', '""') + '"'
+            quoted_id = '"' + id_column.replace('"', '""') + '"'
+            marker_placeholders = ",".join("?" for _ in source_markers)
+            dependent_count += int(
+                conn.execute(
+                    f"SELECT COUNT(*) FROM {quoted_table} "
+                    f"WHERE {quoted_type} IN ({marker_placeholders}) AND {quoted_id}=?",
+                    (*source_markers, _LEGACY_SYNTHETIC_SOURCE_ID),
+                ).fetchone()[0]
+            )
     if dependent_count:
         return False
     conn.execute("DELETE FROM sources WHERE source_id=?", (_LEGACY_SYNTHETIC_SOURCE_ID,))
