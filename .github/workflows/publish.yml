@@ -1,4 +1,4 @@
-name: Publication disabled
+name: Publish v0.2.5 to PyPI
 
 on:
   workflow_dispatch:
@@ -7,11 +7,37 @@ permissions:
   contents: read
 
 jobs:
-  publication-disabled:
-    name: Publication requires a new exact-release authorization
+  pypi-publish:
+    name: Publish exact v0.2.5 artifacts
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mnemoir-provenance
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Refuse stale publication
+      - name: Download exact release artifacts
         run: |
-          echo "::error::Publication is disabled. Create and independently verify a new exact-release artifact binding before enabling an OIDC publish job."
-          exit 1
+          mkdir -p dist
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/v0.2.5"
+          curl --fail --silent --show-error --location --retry 3 \
+            "$base/mnemoir_provenance-0.2.5-py3-none-any.whl" \
+            --output dist/mnemoir_provenance-0.2.5-py3-none-any.whl
+          curl --fail --silent --show-error --location --retry 3 \
+            "$base/mnemoir_provenance-0.2.5.tar.gz" \
+            --output dist/mnemoir_provenance-0.2.5.tar.gz
+
+      - name: Verify artifact identity
+        run: |
+          test "$(printf '%s\n' dist/* | wc -l)" -eq 2
+          printf '%s  %s\n' \
+            'c6eee2ea0b91dc170ba6e0c2bf3a4c5e7d8bf0d070ec927b7c333aa638cead28' \
+            'dist/mnemoir_provenance-0.2.5-py3-none-any.whl' \
+            '5b585510006242ee59f9ebb52e00142a523381e9478ca490c46790b4776b54e1' \
+            'dist/mnemoir_provenance-0.2.5.tar.gz' | sha256sum --check --strict
+
+      - name: Publish to PyPI with OIDC
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        with:
+          packages-dir: dist/
