@@ -2,6 +2,11 @@
 
 All notable user-visible changes are recorded here.
 
+## 0.2.5 — 2026-08-08
+
+- Hardened legacy-sentinel retirement to require the complete immutable sentinel signature, preserving any operator-modified source even when its historical ID and three display fields remain unchanged.
+- Expanded fail-closed dependency detection to cover direct source columns and schema-supported polymorphic source references, including privacy, policy, grant, audit, sync, job, retrieval, and provenance records.
+
 ## 0.2.4 — 2026-08-08
 
 - Removed the legacy synthetic unavailable-source sentinel from production defaults so healthy configured sources no longer make every recall appear degraded.
