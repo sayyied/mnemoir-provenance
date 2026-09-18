@@ -2,6 +2,13 @@
 
 All notable user-visible changes are recorded here.
 
+## 0.2.6 — 2026-09-18
+
+- Preserve original markdown bytes when no blocks can safely be removed: blocked overflow trims no longer perform formatting-only writes, create backup/spool artifacts, or ingest nonexistent removed evidence.
+- Bind profile sources to stable active actors and attributable read grants before cited recall; reject cross-profile actor reassignment and preserve caller-owned transactions.
+- Make the overflow CLI use the same strict default profile denominator as the coordinator, without silently omitting configured defaults.
+- Add synthetic regression coverage for no-op replay, reviewed block-boundary trimming, actor scope isolation, and CLI/coordinator denominator parity. No private runtime data is included.
+
 ## 0.2.5 — 2026-08-08
 
 - Hardened legacy-sentinel retirement to require the complete immutable sentinel signature, preserving any operator-modified source even when its historical ID and three display fields remain unchanged.
