@@ -26,7 +26,7 @@ from .overflow_policy import overflow_status as controlled_overflow_status
 from .policy_guard import propose_writeback, rollback_fixture, writeback_fixture
 from .recall import recall
 from .retrieval_hardening import classify_query_type, extract_answer_bearing_window
-from .scope import authorized_sources_for_profile
+from .scope import authorized_sources_for_profile, ensure_profile_actor_scope
 
 MARKDOWN_FILES: dict[str, str] = {"memory_md": "MEMORY.md", "user_md": "USER.md"}
 FORBIDDEN_PROFILE_COMPONENTS = {"backup", "backups", ".backup", "profile-backup", "profile-backups"}
@@ -599,27 +599,8 @@ def propose_completed_turn_sync(conn: sqlite3.Connection, *, profile_id: str, tu
     return base
 
 def ensure_hermes_actor(conn: sqlite3.Connection, profile_id: str) -> str:
-    timestamp = now_utc()
-    actor_id = stable_id("actor", "hermes_profile", profile_id)
-    conn.execute(
-        """
-        INSERT INTO actors(actor_id, kind, display_name, handle, profile_name, public_card_json, private_card_json, metadata_json, created_at, updated_at)
-        VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(actor_id) DO UPDATE SET display_name=excluded.display_name, handle=excluded.handle, updated_at=excluded.updated_at
-        """,
-        (
-            actor_id,
-            f"Hermes profile {profile_id}",
-            f"hermes:{profile_id}",
-            profile_id,
-            json_dumps({"profile_id": profile_id, "profile_binding": "redacted"}),
-            json_dumps({}),
-            json_dumps({"source_family": "hermes_markdown_overflow", "profile_path_redacted": True}),
-            timestamp,
-            timestamp,
-        ),
-    )
-    return actor_id
+    result = ensure_profile_actor_scope(conn, profile_id=profile_id, source_ids=(), commit=False)
+    return str(result["actor_id"])
 
 
 def register_profile_sources(conn: sqlite3.Connection, profile_id: str, profile_root: str | Path, *, allowed_profile_roots: list[str | Path] | tuple[str | Path, ...] | None = None) -> dict[str, Any]:
@@ -695,6 +676,15 @@ def register_profile_sources(conn: sqlite3.Connection, profile_id: str, profile_
                 timestamp,
             ),
         )
+        if health == "healthy":
+            ensure_profile_actor_scope(
+                conn,
+                profile_id=profile_id,
+                actor_id=actor_id,
+                source_ids=(source.source_id,),
+                ensure_runtime=False,
+                commit=False,
+            )
         registered.append({
             "source_id": source.source_id,
             "source_type": "hermes_markdown_overflow",

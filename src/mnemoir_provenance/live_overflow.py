@@ -20,10 +20,11 @@ from typing import Any, Callable
 
 from .db import configure_connection, json_dumps, now_utc, sha256_text, stable_id
 from .overflow_policy import DEFAULT_POLICY, OverflowPolicy, compute_markdown_pressure
+from .scope import ensure_profile_actor_scope
 
 # Retained only as a migration sentinel. It is deliberately never accepted.
 LIVE_OVERFLOW_AUTHORIZATION = "RETIRED_SELF_AUTHORIZATION_NOT_ACCEPTED"
-DEFAULT_PROFILE_IDS = ("default", "ada", "adila", "amara", "lakshmi", "makeda", "shifa", "designer")
+DEFAULT_PROFILE_IDS = ("default", "ada", "adila", "amara", "lakshmi", "makeda", "shifa", "zaha")
 MARKDOWN_FILES = ("MEMORY.md", "USER.md")
 POLICY_VERSION = "mnemoir-live-overflow-v2"
 
@@ -177,7 +178,10 @@ def _trim_blocks(text: str, *, file_name: str, policy: OverflowPolicy=DEFAULT_PO
     while len(_join_blocks(kept)) > int(pressure["trim_target_chars"]) and len(kept)>1 and i<len(kept):
         if _protected(kept[i]): i += 1
         else: removed.append(kept.pop(i))
-    after = _join_blocks(kept)
+    # A blocked plan is not permission to rewrite whitespace. In particular,
+    # an oversized final block must remain byte-for-byte unchanged until an
+    # operator reviews its boundaries; keep the last-block safeguard intact.
+    after = _join_blocks(kept) if removed else text
     target_reached = len(after) <= int(pressure["trim_target_chars"])
     return after, removed, {
         "reason": "trimmed" if removed and target_reached else "target_unreachable",
@@ -427,6 +431,7 @@ def _record_removed_blocks(conn, *, operation_id,profile_id,file_name,removed_bl
     conn.execute("INSERT OR IGNORE INTO sources(source_id,source_type,display_name,external_ref,profile_id,overflow_kind,read_authority,write_authority,authority_level,health,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
       (source_id,"hermes_markdown_overflow",f"Overflow {profile_id} {file_name}",ref,profile_id,"memory_md" if file_name=="MEMORY.md" else "user_md","read_only","write_allowed","primary","healthy",timestamp,timestamp))
     row=conn.execute("SELECT source_id FROM sources WHERE source_type='hermes_markdown_overflow' AND external_ref=?",(ref,)).fetchone(); source_id=row[0]
+    ensure_profile_actor_scope(conn, profile_id=profile_id, source_ids=(source_id,), ensure_runtime=False, commit=False)
     ids=[]
     for i,block in enumerate(removed_blocks,1):
       bh=sha256_text(block); eid=stable_id("live_overflow_removed",source_id,bh,str(i),before_hash); evid=stable_id("evidence",eid,bh); pointer=f"hermes-profile://{profile_id}/{file_name}#removed-block-{i}"
@@ -439,6 +444,7 @@ def execute_writeback(conn: sqlite3.Connection, request: WritebackRequest, autho
     before_replace: Callable[[],None]|None=None) -> dict[str,Any]:
     configure_connection(conn); fault=fault or (lambda _:None)
     fault("authorization_lookup")
+    ensure_profile_actor_scope(conn, profile_id=request.profile_id, source_ids=())
     validated: dict[str,Any] = {}
     def validate_artifacts(path: Path, root: Path) -> None:
         validated["target_fd"]=_open_existing_directory(path.parent)
@@ -532,6 +538,7 @@ def reconcile_writeback(conn, operation_id: str, *, backup_root: str|Path,
         return {**_result(conn,operation_id,False),"next_action":"none"}
     if authorization is None:
         return {**_result(conn,operation_id,False),"next_action":"authorization_required"}
+    ensure_profile_actor_scope(conn, profile_id=str(row["profile_id"]), source_ids=())
     _authenticate_recovery_authorization(conn,authorization)
     if (authorization.operation_id != operation_id or authorization.authorization_id != row["authorization_id"]
         or authorization.profile_id != row["profile_id"]

@@ -117,6 +117,85 @@ def ensure_scope_runtime(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def ensure_profile_actor_scope(
+    conn: sqlite3.Connection,
+    *,
+    profile_id: str,
+    actor_id: str | None = None,
+    display_name: str | None = None,
+    source_ids: tuple[str, ...] | list[str] | None = None,
+    ensure_runtime: bool = True,
+    commit: bool = True,
+) -> dict[str, Any]:
+    """Ensure profile-owned sources have an active actor and attributable read scope."""
+    if not profile_id or any(ch in profile_id for ch in "/\\:\x00") or profile_id in {".", ".."}:
+        raise ScopeError("invalid_profile_id")
+    if ensure_runtime:
+        ensure_scope_runtime(conn)
+    requested = conn.execute(
+        "SELECT profile_name FROM actors WHERE actor_id=?",
+        (actor_id,),
+    ).fetchone() if actor_id else None
+    if requested is not None and requested["profile_name"] not in {None, "", profile_id}:
+        raise ScopeError("actor_profile_mismatch")
+    existing = conn.execute(
+        "SELECT actor_id FROM actors WHERE profile_name=? AND is_active=1 ORDER BY actor_id LIMIT 1",
+        (profile_id,),
+    ).fetchone()
+    resolved = str(existing["actor_id"]) if existing is not None else (actor_id or stable_id("actor", "hermes_profile", profile_id))
+    timestamp = now_utc()
+    conn.execute(
+        """
+        INSERT INTO actors(actor_id, kind, display_name, handle, profile_name, public_card_json,
+                           private_card_json, metadata_json, is_active, created_at, updated_at)
+        VALUES (?, 'agent', ?, ?, ?, ?, '{}', ?, 1, ?, ?)
+        ON CONFLICT(actor_id) DO UPDATE SET
+          display_name=excluded.display_name, handle=excluded.handle,
+          profile_name=excluded.profile_name, is_active=1, updated_at=excluded.updated_at
+        """,
+        (
+            resolved,
+            display_name or f"Hermes profile {profile_id}",
+            f"hermes:{profile_id}",
+            profile_id,
+            json_dumps({"profile_id": profile_id, "profile_binding": "redacted"}),
+            json_dumps({"profile_path_redacted": True, "attributable_scope": True}),
+            timestamp,
+            timestamp,
+        ),
+    )
+    if source_ids is None:
+        rows = conn.execute(
+            "SELECT source_id FROM sources WHERE profile_id=? AND health='healthy' AND read_authority!='none' ORDER BY source_id",
+            (profile_id,),
+        ).fetchall()
+        resolved_sources = [str(row["source_id"]) for row in rows]
+    else:
+        resolved_sources = sorted(set(str(value) for value in source_ids))
+    grant_ids: list[str] = []
+    for source_id in resolved_sources:
+        owned = conn.execute(
+            "SELECT 1 FROM sources WHERE source_id=? AND profile_id=? AND health='healthy' AND read_authority!='none'",
+            (source_id, profile_id),
+        ).fetchone()
+        if owned is None:
+            raise ScopeError("profile_source_scope_mismatch")
+        grant_id = stable_id("grant", resolved, "source", source_id, "read")
+        conn.execute(
+            """
+            INSERT INTO access_grants(grant_id, actor_id, scope_type, scope_id, permission, policy_id, created_at)
+            VALUES (?, ?, 'source', ?, 'read', 'policy_compat11_local_scope_visibility', ?)
+            ON CONFLICT(actor_id, scope_type, scope_id, permission)
+            DO UPDATE SET policy_id=excluded.policy_id
+            """,
+            (grant_id, resolved, source_id, timestamp),
+        )
+        grant_ids.append(grant_id)
+    if commit:
+        conn.commit()
+    return {"actor_id": resolved, "profile_id": profile_id, "grant_ids": grant_ids, "source_ids": resolved_sources}
+
+
 def bind_profile_metadata(
     conn: sqlite3.Connection,
     *,
@@ -131,22 +210,16 @@ def bind_profile_metadata(
         return decision
     ensure_scope_runtime(conn)
     timestamp = now_utc()
-    if not _actor_exists(conn, actor_id):
-        conn.execute(
-            """
-            INSERT INTO actors(actor_id, kind, display_name, handle, profile_name, public_card_json, private_card_json, metadata_json, created_at, updated_at)
-            VALUES (?, 'agent', ?, ?, NULL, ?, '{}', ?, ?, ?)
-            """,
-            (
-                actor_id,
-                display_name or f"Scoped profile actor {profile_id}",
-                f"scoped:{profile_id}",
-                json_dumps({"profile_binding": "redacted", "profile_id": profile_id}),
-                json_dumps({"phase": "compat11", "profile_binding_metadata_only": True, "profile_path_redacted": True}),
-                timestamp,
-                timestamp,
-            ),
-        )
+    actor_scope = ensure_profile_actor_scope(
+        conn,
+        profile_id=profile_id,
+        actor_id=actor_id,
+        display_name=display_name or f"Scoped profile actor {profile_id}",
+        source_ids=(),
+        ensure_runtime=False,
+        commit=False,
+    )
+    actor_id = str(actor_scope["actor_id"])
     source_id = f"hermes_profile_binding:{profile_id}"
     conn.execute(
         """
@@ -341,9 +414,14 @@ def authorized_sources_for_profile(
     ensure_scope_runtime(conn)
     if not profile_id or any(ch in profile_id for ch in "/\\:\x00") or profile_id in {".", ".."}:
         raise ScopeError("invalid_profile_id")
-    if actor_id is None:
-        row = conn.execute("SELECT actor_id FROM actors WHERE profile_name=? AND is_active=1 ORDER BY actor_id LIMIT 1", (profile_id,)).fetchone()
-        actor_id = row["actor_id"] if row else stable_id("actor", "hermes_profile", profile_id)
+    actor_scope = ensure_profile_actor_scope(
+        conn,
+        profile_id=profile_id,
+        actor_id=actor_id,
+        ensure_runtime=False,
+        commit=False,
+    )
+    actor_id = str(actor_scope["actor_id"])
 
     allowed_families = tuple(source_families)
     family_placeholders = ",".join("?" for _ in allowed_families)

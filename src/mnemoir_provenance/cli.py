@@ -14,7 +14,7 @@ from .council import CouncilError, attach_evidence, bind_role, create_assignment
 from .curation import CurationError, create_proposal, inspect_proposal, list_proposals, proposal_from_cli_args, read_memory, review_proposal, rollback_memory, tombstone_memory, write_memory
 from .db import connect, initialize_database
 from .health import HealthError, open_local_health_report
-from .live_overflow import LIVE_OVERFLOW_AUTHORIZATION, LiveOverflowError, WritebackAuthorization, execute_writeback, reconcile_writeback, rollback_writeback, request_from_authorization, execute_live_overflow_trim, ingest_pending_evidence_spools, live_overflow_status, run_live_overflow_coordinator
+from .live_overflow import DEFAULT_PROFILE_IDS, LIVE_OVERFLOW_AUTHORIZATION, LiveOverflowError, WritebackAuthorization, execute_writeback, reconcile_writeback, rollback_writeback, request_from_authorization, execute_live_overflow_trim, ingest_pending_evidence_spools, live_overflow_status, run_live_overflow_coordinator
 from .experiments import ExperimentError, candidate_experiment, candidate_experiment_cases, default_fixture_suite, define_memory_model_version, list_candidate_experiments, list_memory_model_versions, run_candidate_experiment
 from .improvement_proposals import ImprovementProposalError, active_local_memory_model_version, evaluate_promotion_recommendation, generate_improvement_proposals, improvement_proposal, improvement_status, list_improvement_proposals, promote_memory_model_version, rollback_memory_model_promotion, review_improvement_proposal, run_or_attach_proposal_experiment
 from .learning import LearningError, allowed_learning_event_types, allowed_learning_failure_classes, allowed_learning_outcome_labels, learning_event, learning_failure_clusters, list_learning_events, record_learning_event
@@ -600,7 +600,7 @@ def cmd_hermes_overflow_pressure(args: argparse.Namespace) -> int:
 
 def cmd_hermes_live_overflow_status(args: argparse.Namespace) -> int:
     try:
-        result = live_overflow_status(profile_ids=tuple(args.profile_id or ['default', 'ada', 'adila', 'amara', 'designer', 'lakshmi', 'makeda', 'shifa']), hermes_home=args.hermes_home)
+        result = live_overflow_status(profile_ids=tuple(args.profile_id or DEFAULT_PROFILE_IDS), hermes_home=args.hermes_home)
     except LiveOverflowError as error:
         return _fail_closed(error)
     _json_print(result)
@@ -1845,7 +1845,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None=None) -> int:
     parser = build_parser()
-    parser.add_argument('--version', action='version', version='%(prog)s 0.2.5')
+    parser.add_argument('--version', action='version', version='%(prog)s 0.2.6')
     args = parser.parse_args(argv)
     return args.func(args)
 if __name__ == '__main__':
