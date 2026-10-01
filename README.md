@@ -8,7 +8,7 @@ Mnemoir Provenance is a local Python and SQLite memory layer for agents, assista
 
 When evidence is unavailable, Mnemoir keeps that gap visible instead of quietly substituting an uncited result.
 
-**0.2.6 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
+**0.3.0 · Beta · Python 3.11–3.12 supported · MIT · Hermes optional**
 
 - [Quick start](#quick-start)
 - [How it works](#from-source-to-recall)
@@ -100,7 +100,7 @@ python -m pip install --upgrade mnemoir-provenance
 For a reproducible installation of this exact release, pin the version; `--upgrade` is unnecessary with the exact pin:
 
 ```bash
-python -m pip install 'mnemoir-provenance==0.2.6'
+python -m pip install 'mnemoir-provenance==0.3.0'
 ```
 
 Run the standalone CLI flow directly from the installed package:
@@ -134,7 +134,7 @@ Clone/editable installation is not required for normal use.
 
 ## Optional Hermes reference adapter
 
-Hermes and Mnemoir must be importable in the **same Python runtime**. Mnemoir 0.2.6 is maintained against Hermes Agent 0.19.1 and exact official revision `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`. In a fresh shared environment:
+Hermes and Mnemoir must be importable in the **same Python runtime**. Mnemoir 0.3.0 is maintained against Hermes Agent 0.19.1 and exact official revision `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`. In a fresh shared environment:
 
 ```bash
 python -m pip install 'mnemoir-provenance[hermes]'
@@ -176,7 +176,19 @@ For v0.2.4, the controlled fixture must contain both immediate non-symlink `MEMO
 
 Trusted primary conversations may recall and mutate only according to configured policy. Cron, flush, subagent, background/review, unknown, and contradictory contexts fail closed before writable initialization; prohibited recall is explicitly disabled/degraded. Provider JSON configuration is an owner-owned regular file at mode `0600`. The SQLite database and imported memories are local plaintext unless the operator supplies filesystem or volume encryption. Default `writeback_mode=propose_only`; live overflow trim requires explicit durable policy.
 
-The public provider exposes exactly 12 tools: `cmc_context`, `cmc_search`, `cmc_sources`, `cmc_propose_memory`, `cmc_overflow_pressure`, `cmc_overflow_plan`, `cmc_ingest_profile_markdown`, `cmc_sync_turn_proposal`, `cmc_import_honcho_legacy`, `cmc_import_session_search`, `cmc_import_obsidian_vault`, and `cmc_writeback_status`. The `cmc_*` tool identifiers are retained legacy API names under the public `mnemoir_provenance` provider; they are documented explicitly and are not silently renamed. Advanced list-valued configuration includes `controlled_profile_roots`, `controlled_turn_roots`, `controlled_honcho_import_roots`, `controlled_session_search_roots`, and `controlled_obsidian_vault_roots`.
+The public provider exposes 22 tool names: the 11 legacy `cmc_*` tools (`cmc_context`, `cmc_search`, `cmc_sources`, `cmc_propose_memory`, `cmc_overflow_pressure`, `cmc_overflow_plan`, `cmc_ingest_profile_markdown`, `cmc_sync_turn_proposal`, `cmc_import_session_search`, `cmc_import_obsidian_vault`, and `cmc_writeback_status`) plus 11 `mnemoir_*` public aliases that dispatch to the same handlers (for example `mnemoir_context` for `cmc_context`). The `cmc_*` identifiers are retained legacy API names under the public `mnemoir_provenance` provider; they are documented explicitly and are not silently renamed. Advanced list-valued configuration includes `controlled_profile_roots`, `controlled_turn_roots`, `controlled_session_search_roots`, and `controlled_obsidian_vault_roots`.
+
+### Shipped defaults vs. the explicit daily profile
+
+Installing Mnemoir and selecting the `mnemoir_provenance` provider are both side-effect-free: neither ingests sources, promotes memory, enables live writeback, or restarts a gateway. The shipped defaults are deliberately conservative:
+
+| Setting | Shipped default | Effect |
+|---|---|---|
+| `writeback_mode` | `propose_only` | Overflow planning proposes; it does not trim live files |
+| `ingest_on_start` | `false` | A fresh provider is empty/degraded until a controlled source is registered |
+| `sync_turn_policy` | `audit_only` | Completed turns are audited, not automatically promoted |
+
+The **explicit daily profile** is a separate opt-in for hosts that want the active posture: it turns on live overflow trim and high-signal promotion for trusted primary sessions. It is enabled deliberately with `mnemoir plugin enable-daily --confirm` and removed with `mnemoir plugin disable-daily`, which leaves the SQLite database in place. Until then, `cmc_*` recall works and no live file is mutated.
 
 ### Disable, rollback and retain data
 
@@ -222,7 +234,9 @@ Read [SECURITY.md](SECURITY.md), the [security model](docs/operations/security-m
 
 ## Project status
 
-The repository currently identifies as Mnemoir Provenance 0.2.6 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets; package metadata excludes Python 3.13 until it is added to CI. Linux is the tested and supported candidate environment. The package is MIT licensed.
+The repository currently identifies as Mnemoir Provenance 0.3.0 and is classified **Beta**. Python 3.11 and 3.12 are the tested and supported targets; package metadata excludes Python 3.13 until it is added to CI. Linux is the tested and supported candidate environment. The package is MIT licensed.
+
+**Name and disambiguation.** Mnemoir (pronounced *nem-wahr*) is the product name. It is not the English word *memoir*, and it is not a spelling variant of it. The public distribution is `mnemoir-provenance`, the Python import and Hermes provider are `mnemoir_provenance`, and the command is `mnemoir`.
 
 Mnemoir Provenance is an independent open-source project and is not affiliated with other projects using similar names.
 

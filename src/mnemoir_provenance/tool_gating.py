@@ -14,15 +14,6 @@ MNEMOIR_PROVIDER_ID = "mnemoir_provenance"
 MEMORY_TOOLSET = "memory"
 
 BUILTIN_MEMORY_TOOL_NAMES = frozenset({"memory"})
-HONCHO_TOOL_NAMES = frozenset(
-    {
-        "honcho_profile",
-        "honcho_search",
-        "honcho_reasoning",
-        "honcho_context",
-        "honcho_conclude",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -38,7 +29,6 @@ class ToolGatingRequest:
     deny_tools: Sequence[str] | None = None
     existing_tool_names: Sequence[str] | None = None
     builtin_memory_tool_names: Sequence[str] = tuple(BUILTIN_MEMORY_TOOL_NAMES)
-    honcho_tool_names: Sequence[str] = tuple(HONCHO_TOOL_NAMES)
 
 
 def _names(values: Iterable[Any] | None) -> list[str]:
@@ -67,8 +57,7 @@ def evaluate_mnemoir_tool_gating(request: ToolGatingRequest) -> dict[str, Any]:
     enabled_toolsets = _names(request.enabled_toolsets) if request.enabled_toolsets is not None else None
     existing_tool_names = set(_names(request.existing_tool_names))
     builtin_names = set(_names(request.builtin_memory_tool_names))
-    honcho_names = set(_names(request.honcho_tool_names))
-    reserved_names = builtin_names | honcho_names
+    reserved_names = builtin_names
 
     disabled_reasons: list[str] = []
     if request.skip_memory:
@@ -83,7 +72,7 @@ def evaluate_mnemoir_tool_gating(request: ToolGatingRequest) -> dict[str, Any]:
     collision_names = sorted(set(intrinsic_collisions) | set(existing_collisions))
     collision_sources = []
     if intrinsic_collisions:
-        collision_sources.append("reserved_builtin_or_honcho_name")
+        collision_sources.append("reserved_builtin_name")
     if existing_collisions:
         collision_sources.append("existing_tool_name")
 
@@ -136,7 +125,6 @@ def evaluate_mnemoir_tool_gating(request: ToolGatingRequest) -> dict[str, Any]:
         "collision_names": collision_names,
         "collision_sources": sorted(collision_sources),
         "builtin_memory_tool_names_checked": sorted(builtin_names),
-        "honcho_tool_names_checked": sorted(honcho_names),
         "fail_closed": fail_closed,
         "provider_initialization_required_for_status": False,
         "provider_side_effects_required_for_status": False,
@@ -144,7 +132,6 @@ def evaluate_mnemoir_tool_gating(request: ToolGatingRequest) -> dict[str, Any]:
         "provider_activation_performed": False,
         "gateway_restart_performed": False,
         "cron_systemd_autostart_mutation_performed": False,
-        "honcho_api_called": False,
         "session_search_db_read": False,
         "real_profile_markdown_read": False,
         "real_profile_markdown_writeback": False,

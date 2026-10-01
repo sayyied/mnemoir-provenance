@@ -228,7 +228,7 @@
             "enum": [
               "memory_md",
               "user_md",
-              "honcho",
+              "legacy",
               "session",
               "wiki",
               "repo",
@@ -253,7 +253,7 @@
               "hermes_state_db",
               "hermes_profile_memory",
               "hermes_markdown_overflow",
-              "honcho",
+              "legacy_import",
               "session_search",
               "obsidian_wiki",
               "repo_docs",
@@ -289,7 +289,7 @@
   "info": {
     "description": "Contract-only OpenAPI target. Runtime API is not implemented yet.",
     "title": "Mnemoir Provenance API",
-    "version": "0.2.6"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {

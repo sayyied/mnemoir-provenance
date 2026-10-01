@@ -2,7 +2,7 @@
 
 All entry points are controlled-local only. They accept caller-supplied fixture
 paths/roots, preserve source provenance in Mnemoir rows, and return only counts,
-hashes, IDs, and redacted pointers. They do not call Honcho APIs, read live
+hashes, IDs, and redacted pointers. They do not call a legacy memory API, read live
 Hermes profiles, mutate Hermes config, promote canonical memories, or write live
 markdown.
 """
@@ -21,7 +21,6 @@ from .curation import create_proposal
 from .db import json_dumps, now_utc, sha256_text, stable_id
 from .hermes_provider import (
     context_packet,
-    import_honcho_legacy_fixture,
     markdown_writeback_status,
     provider_status,
 )
@@ -62,7 +61,7 @@ def _contains_live_profile(path: Path) -> bool:
 
 def _looks_network(value: str) -> bool:
     lowered = value.lower().strip()
-    return lowered.startswith(("http://", "https://", "honcho://", "ws://", "wss://"))
+    return lowered.startswith(("http://", "https://", "ws://", "wss://"))
 
 
 def _assert_no_symlink_components(path: Path) -> None:
@@ -171,7 +170,6 @@ def inventory_migration_inputs(*, profile_id: str, roots: Iterable[str | Path], 
         "content_included": False,
         "path_redacted": True,
         "redacted_pointers_only": True,
-        "honcho_api_called": False,
         "live_profile_read": False,
         "live_config_mutation_performed": False,
         "automatic_memory_promotion": False,
@@ -201,7 +199,7 @@ def inventory_migration_inputs(*, profile_id: str, roots: Iterable[str | Path], 
                 content_hash_counts.update(block_hashes)
                 inventory["total_records"] += len(block_hashes)
                 inventory["total_bytes"] += path.stat().st_size
-                inventory["source_summaries"].append({"source_family": "pre_honcho_local_memory_file", "file_basename": path.name, "source_hash": sha256_text(text), "record_count": len(block_hashes), "record_class_counts": {_MEMORY_FILE_NAMES[path.name]: len(block_hashes)}, "content_included": False, "path_redacted": True})
+                inventory["source_summaries"].append({"source_family": "pre_legacy_local_memory_file", "file_basename": path.name, "source_hash": sha256_text(text), "record_count": len(block_hashes), "record_class_counts": {_MEMORY_FILE_NAMES[path.name]: len(block_hashes)}, "content_included": False, "path_redacted": True})
                 continue
             if path.suffix.lower() == ".md":
                 text = path.read_text(encoding="utf-8")
@@ -229,7 +227,7 @@ def inventory_migration_inputs(*, profile_id: str, roots: Iterable[str | Path], 
             inventory["total_records"] += len(summaries)
             inventory["total_bytes"] += path.stat().st_size
             inventory["source_summaries"].append({
-                "source_family": "honcho_export_or_snapshot" if any(k in (payload if isinstance(payload, dict) else {}) for k in ("export_id", "workspace_id", "peer_id")) else "controlled_json_export",
+                "source_family": "legacy_export_or_snapshot" if any(k in (payload if isinstance(payload, dict) else {}) for k in ("export_id", "workspace_id", "peer_id")) else "controlled_json_export",
                 "source_hash": sha256_text(json_dumps(payload)),
                 "record_count": len(summaries),
                 "record_class_counts": dict(local_counts),
@@ -266,14 +264,14 @@ def _ensure_actor(conn: sqlite3.Connection, profile_id: str) -> str:
     return actor_id
 
 
-def import_pre_honcho_memory_files(conn: sqlite3.Connection, *, profile_id: str, memory_root: str | Path, allowed_roots: Iterable[str | Path] | None = None) -> dict[str, Any]:
+def import_pre_legacy_memory_files(conn: sqlite3.Connection, *, profile_id: str, memory_root: str | Path, allowed_roots: Iterable[str | Path] | None = None) -> dict[str, Any]:
     """Import controlled MEMORY.md/USER.md-like files as cited source evidence only."""
     profile_id = _safe_profile_id(profile_id)
-    base = {"provider": "mnemoir_local", "surface": "compat15_1_pre_honcho_memory_import", "profile_id": profile_id, "content_included": False, "path_redacted": True, "real_profile_markdown_read": False, "automatic_memory_promotion": False, "review_required": True}
+    base = {"provider": "mnemoir_local", "surface": "compat15_1_pre_legacy_memory_import", "profile_id": profile_id, "content_included": False, "path_redacted": True, "real_profile_markdown_read": False, "automatic_memory_promotion": False, "review_required": True}
     try:
         root = _controlled_path(memory_root, allowed_roots=allowed_roots, require_exists=True, require_dir=True)
     except MigrationReadinessError as error:
-        audit_id = write_audit_event(conn, event_type="migration.pre_honcho_memory.import", target_type="source", target_id="pre-honcho:redacted", status="denied" if "denied" in str(error) else "degraded", metadata={"profile_id": profile_id, "failure_reason": str(error), "content_read": False, "path_redacted": True})
+        audit_id = write_audit_event(conn, event_type="migration.pre_legacy_memory.import", target_type="source", target_id="pre-legacy:redacted", status="denied" if "denied" in str(error) else "degraded", metadata={"profile_id": profile_id, "failure_reason": str(error), "content_read": False, "path_redacted": True})
         conn.commit()
         base.update({"status": "unauthorized" if "denied" in str(error) else "degraded", "failure_reason": str(error), "records_imported": 0, "audit_id": audit_id})
         return base
@@ -288,13 +286,13 @@ def import_pre_honcho_memory_files(conn: sqlite3.Connection, *, profile_id: str,
             continue
         text = path.read_text(encoding="utf-8")
         fixture_hash = sha256_text(text)
-        source_id = stable_id("source", "pre_honcho_memory", profile_id, file_name, fixture_hash)
-        external_ref = f"pre-honcho-memory://{profile_id}/{stable_id('file_ref', file_name, fixture_hash)}"
+        source_id = stable_id("source", "pre_legacy_memory", profile_id, file_name, fixture_hash)
+        external_ref = f"pre-legacy-memory://{profile_id}/{stable_id('file_ref', file_name, fixture_hash)}"
         conn.execute("""
             INSERT INTO sources(source_id, source_type, display_name, external_ref, profile_id, overflow_kind, read_authority, write_authority, authority_level, health, last_sync_at, freshness_seconds, provenance_rules_json, privacy_policy_json, created_at, updated_at)
             VALUES (?, 'file', ?, ?, ?, NULL, 'read_only', 'propose_only', 'secondary', 'healthy', ?, 0, ?, ?, ?, ?)
             ON CONFLICT(source_id) DO UPDATE SET health='healthy', updated_at=excluded.updated_at
-        """, (source_id, f"Controlled pre-Honcho {file_name} continuity source", external_ref, profile_id, timestamp, json_dumps({"adapter": "compat15_1_pre_honcho_memory", "file_basename": file_name, "overflow_kind": overflow_kind, "path_redacted": True, "review_required": True}), json_dumps({"raw_status_output_allowed": False, "profile_path_redacted": True}), timestamp, timestamp))
+        """, (source_id, f"Controlled pre-legacy {file_name} continuity source", external_ref, profile_id, timestamp, json_dumps({"adapter": "compat15_1_pre_legacy_memory", "file_basename": file_name, "overflow_kind": overflow_kind, "path_redacted": True, "review_required": True}), json_dumps({"raw_status_output_allowed": False, "profile_path_redacted": True}), timestamp, timestamp))
         grant_scope(conn, actor_id=actor, scope_type="source", scope_id=source_id, permission="read", commit=False)
         snapshot_id = stable_id("snapshot", source_id, fixture_hash)
         conn.execute("INSERT OR IGNORE INTO source_snapshots(snapshot_id, source_id, snapshot_hash, snapshot_ref, captured_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?)", (snapshot_id, source_id, fixture_hash, external_ref, timestamp, json_dumps({"file_basename": file_name, "path_redacted": True})))
@@ -312,16 +310,16 @@ def import_pre_honcho_memory_files(conn: sqlite3.Connection, *, profile_id: str,
             evidence_id = stable_id("evidence", event_id)
             cur = conn.execute("""
                 INSERT OR IGNORE INTO evidence_items(evidence_id, kind, source_id, raw_event_id, uri, locator_json, quote_text, content_hash, trust_score, privacy_class, observed_at, created_at)
-                VALUES (?, 'file', ?, ?, ?, ?, 'Controlled pre-Honcho memory evidence; raw private content omitted from status output.', ?, 0.65, 'private', ?, ?)
+                VALUES (?, 'file', ?, ?, ?, ?, 'Controlled pre-legacy memory evidence; raw private content omitted from status output.', ?, 0.65, 'private', ?, ?)
             """, (evidence_id, source_id, event_id, pointer, json_dumps({"profile_id": profile_id, "file_basename": file_name, "block_index": index, "path_redacted": True, "content_hash_only": True}), content_hash, timestamp, timestamp))
             inserted_evidence += 1 if cur.rowcount > 0 else 0
             for edge in [("source", source_id, "raw_event", event_id, "produced"), ("raw_event", event_id, "evidence", evidence_id, "quotes")]:
                 edge_id = stable_id("edge", *edge)
-                cur = conn.execute("INSERT OR IGNORE INTO provenance_edges(edge_id, from_type, from_id, to_type, to_id, relation_type, confidence, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, 0.9, ?, ?)", (edge_id, *edge, json_dumps({"adapter": "compat15_1_pre_honcho_memory", "path_redacted": True}), timestamp))
+                cur = conn.execute("INSERT OR IGNORE INTO provenance_edges(edge_id, from_type, from_id, to_type, to_id, relation_type, confidence, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, 0.9, ?, ?)", (edge_id, *edge, json_dumps({"adapter": "compat15_1_pre_legacy_memory", "path_redacted": True}), timestamp))
                 inserted_edges += 1 if cur.rowcount > 0 else 0
-            create_proposal(conn, title="Pre-Honcho continuity memory proposal", summary="Review controlled pre-Honcho memory block for possible durable continuity.", body=f"Proposal generated from controlled pre-Honcho memory evidence. content_hash={content_hash} file_basename={file_name}", evidence_ids=[evidence_id], source_event_ids=[event_id], privacy_class="private", actor_id=actor)
+            create_proposal(conn, title="Pre-legacy continuity memory proposal", summary="Review controlled pre-legacy memory block for possible durable continuity.", body=f"Proposal generated from controlled pre-legacy memory evidence. content_hash={content_hash} file_basename={file_name}", evidence_ids=[evidence_id], source_event_ids=[event_id], privacy_class="private", actor_id=actor)
         imported.append({"source_id": source_id, "file_basename": file_name, "snapshot_hash": fixture_hash, "block_count": block_count, "source_ref": external_ref, "content_included": False, "path_redacted": True})
-    audit_id = write_audit_event(conn, event_type="migration.pre_honcho_memory.import", target_type="source", target_id=f"pre-honcho:{profile_id}", actor_id=actor, status="ok" if imported else "degraded", metadata={"profile_id": profile_id, "imported_source_ids": [item["source_id"] for item in imported], "content_included": False, "path_redacted": True, "automatic_memory_promotion": False})
+    audit_id = write_audit_event(conn, event_type="migration.pre_legacy_memory.import", target_type="source", target_id=f"pre-legacy:{profile_id}", actor_id=actor, status="ok" if imported else "degraded", metadata={"profile_id": profile_id, "imported_source_ids": [item["source_id"] for item in imported], "content_included": False, "path_redacted": True, "automatic_memory_promotion": False})
     conn.commit()
     base.update({"status": "ok" if imported else "degraded", "records_imported": inserted_raw, "inserted_raw_events": inserted_raw, "inserted_evidence_items": inserted_evidence, "inserted_provenance_edges": inserted_edges, "imported_sources": imported, "audit_id": audit_id})
     return base
@@ -363,7 +361,7 @@ def import_generated_message_scale_fixture(conn: sqlite3.Connection, *, profile_
     external_ref = f"migration-scale://{profile_id}/{source_id}"
     conn.execute("""
         INSERT INTO sources(source_id, source_type, display_name, external_ref, profile_id, overflow_kind, read_authority, write_authority, authority_level, health, last_sync_at, freshness_seconds, provenance_rules_json, privacy_policy_json, created_at, updated_at)
-        VALUES (?, 'honcho', ?, ?, ?, 'honcho', 'read_only', 'propose_only', 'secondary', 'healthy', ?, 0, ?, ?, ?, ?)
+        VALUES (?, 'legacy_import', ?, ?, ?, 'legacy', 'read_only', 'propose_only', 'secondary', 'healthy', ?, 0, ?, ?, ?, ?)
         ON CONFLICT(source_id) DO UPDATE SET health='healthy', updated_at=excluded.updated_at
     """, (source_id, f"compat 15.1 generated large-message migration fixture ({profile_id})", external_ref, profile_id, timestamp, json_dumps({"adapter": "compat15_1_generated_scale_fixture", "path_redacted": True, "chunk_size": chunk_size}), json_dumps({"raw_status_output_allowed": False, "profile_path_redacted": True}), timestamp, timestamp))
     grant_scope(conn, actor_id=actor, scope_type="source", scope_id=source_id, permission="read", commit=False)
@@ -419,8 +417,8 @@ def migration_readiness_report(conn: sqlite3.Connection, *, profile_id: str, que
     status = provider_status(conn, profile_id=None)
     source_counts = {row["source_type"]: row["count"] for row in conn.execute("SELECT source_type, COUNT(*) AS count FROM sources GROUP BY source_type").fetchall()}
     table_counts = {name: conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0] for name in ["sources", "source_snapshots", "sessions", "raw_events", "evidence_items", "provenance_edges", "memory_proposals", "memories", "audit_events"]}
-    context = context_packet(conn, query, profile_id=profile_id, source_families=("honcho", "file", "session_search", "obsidian_wiki", "hermes_markdown_overflow", "hermes_profile_memory"), limit=5, context_budget_chars=context_budget_chars)
-    tool_allowed = evaluate_mnemoir_tool_gating(ToolGatingRequest(schemas=[{"name": "cmc_context"}, {"name": "cmc_search"}, {"name": "cmc_import_honcho_legacy"}], selected_provider_id="mnemoir_provenance", memory_enabled=True, enabled_toolsets=["memory"], existing_tool_names=[]))
+    context = context_packet(conn, query, profile_id=profile_id, source_families=("legacy_import", "file", "session_search", "obsidian_wiki", "hermes_markdown_overflow", "hermes_profile_memory"), limit=5, context_budget_chars=context_budget_chars)
+    tool_allowed = evaluate_mnemoir_tool_gating(ToolGatingRequest(schemas=[{"name": "cmc_context"}, {"name": "cmc_search"}, {"name": "cmc_import_session_search"}], selected_provider_id="mnemoir_provenance", memory_enabled=True, enabled_toolsets=["memory"], existing_tool_names=[]))
     tool_disabled = evaluate_mnemoir_tool_gating(ToolGatingRequest(schemas=[{"name": "cmc_context"}], selected_provider_id="mnemoir_provenance", memory_enabled=False, enabled_toolsets=["memory"], existing_tool_names=[]))
     tool_collision = evaluate_mnemoir_tool_gating(ToolGatingRequest(schemas=[{"name": "memory"}], selected_provider_id="mnemoir_provenance", memory_enabled=True, enabled_toolsets=["memory"], existing_tool_names=["memory"]))
     proposal_status = conn.execute("SELECT status, COUNT(*) AS count FROM memory_proposals GROUP BY status").fetchall()
@@ -450,25 +448,23 @@ def migration_readiness_report(conn: sqlite3.Connection, *, profile_id: str, que
         "table_counts": table_counts,
         "source_counts": source_counts,
         "proposal_status_counts": {row["status"]: row["count"] for row in proposal_status},
-        "provider_readiness": {"cmc_selected": True, "honcho_active": False, "honcho_api_required": False, "provider_init_prefetch_ready": bool(status)},
+        "provider_readiness": {"cmc_selected": True, "provider_init_prefetch_ready": bool(status)},
         "tool_readiness": {"allowed_status": tool_allowed["gating_state"], "disabled_exposed_count": tool_disabled["exposed_tool_count"], "collision_status": tool_collision["gating_state"]},
         "writeback_readiness": writeback,
         "context_readiness": {"status": context["status"], "cited_count": len(context.get("cited_context") or []), "packed_status": context.get("packed_context", {}).get("status"), "budget": context.get("packed_context", {}).get("budget"), "warnings": context.get("warnings", [])},
         "promotion_policy": {"silent_canonical_promotion": False, "review_required_proposals": True, "canonical_memories_created": table_counts["memories"]},
-        "forbidden_action_flags": {"honcho_api_called": False, "live_profile_markdown_read": False, "live_profile_markdown_writeback": False, "live_config_mutation_performed": False, "gateway_restart_performed": False, "cron_systemd_autostart_mutated": False, "compat_15_2_activation_performed": False},
+        "forbidden_action_flags": {"live_profile_markdown_read": False, "live_profile_markdown_writeback": False, "live_config_mutation_performed": False, "gateway_restart_performed": False, "cron_systemd_autostart_mutated": False, "compat_15_2_activation_performed": False},
         "benchmark_comparison": {"baseline": "post-15.0.3", "regression_observed": False, "comparison_mode": "targeted_readiness_counts_and_context_smoke"},
         "watch_items": watch_items,
     }
 
 
-def dry_run_migration(conn: sqlite3.Connection, *, profile_id: str, honcho_fixture_path: str | Path | None = None, pre_honcho_memory_root: str | Path | None = None, session_fixture_path: str | Path | None = None, obsidian_vault_root: str | Path | None = None, allowed_roots: Iterable[str | Path] | None = None, query: str = "durable continuity preference") -> dict[str, Any]:
+def dry_run_migration(conn: sqlite3.Connection, *, profile_id: str, pre_legacy_memory_root: str | Path | None = None, session_fixture_path: str | Path | None = None, obsidian_vault_root: str | Path | None = None, allowed_roots: Iterable[str | Path] | None = None, query: str = "durable continuity preference") -> dict[str, Any]:
     """Run controlled compat 15.1 dry-run import across supplied source classes."""
     profile_id = _safe_profile_id(profile_id)
-    results: dict[str, Any] = {"status": "ok", "phase": "15.1", "profile_id": profile_id, "content_included": False, "path_redacted": True, "imports": {}, "forbidden_action_flags": {"honcho_api_called": False, "live_profile_markdown_read": False, "live_profile_markdown_writeback": False, "live_config_mutation_performed": False, "compat_15_2_activation_performed": False}}
-    if honcho_fixture_path is not None:
-        results["imports"]["honcho"] = import_honcho_legacy_fixture(conn, profile_id=profile_id, honcho_fixture_path=honcho_fixture_path, allowed_honcho_roots=list(allowed_roots or []))
-    if pre_honcho_memory_root is not None:
-        results["imports"]["pre_honcho_memory"] = import_pre_honcho_memory_files(conn, profile_id=profile_id, memory_root=pre_honcho_memory_root, allowed_roots=allowed_roots)
+    results: dict[str, Any] = {"status": "ok", "phase": "15.1", "profile_id": profile_id, "content_included": False, "path_redacted": True, "imports": {}, "forbidden_action_flags": {"live_profile_markdown_read": False, "live_profile_markdown_writeback": False, "live_config_mutation_performed": False, "compat_15_2_activation_performed": False}}
+    if pre_legacy_memory_root is not None:
+        results["imports"]["pre_legacy_memory"] = import_pre_legacy_memory_files(conn, profile_id=profile_id, memory_root=pre_legacy_memory_root, allowed_roots=allowed_roots)
     if session_fixture_path is not None:
         results["imports"]["session_search"] = import_session_search_fixture(conn, profile_id=profile_id, session_fixture_path=session_fixture_path, allowed_session_roots=list(allowed_roots or []))
     if obsidian_vault_root is not None:
@@ -484,6 +480,6 @@ def leak_forbidden_scan_payload(payloads: Iterable[Any]) -> dict[str, Any]:
     text = "\n".join(json.dumps(payload, sort_keys=True) if not isinstance(payload, str) else payload for payload in payloads)
     lowered = text.lower()
     hits = [marker for marker in _SECRET_MARKERS if marker in lowered]
-    hard_phrases = ["raw memory.md", "raw user.md", "honcho deletion", "feature-complete replacement", "compat 15.2 controlled activation performed", "silent canonical promotion"]
+    hard_phrases = ["raw memory.md", "raw user.md", "legacy deletion", "feature-complete replacement", "compat 15.2 controlled activation performed", "silent canonical promotion"]
     hits.extend([phrase for phrase in hard_phrases if phrase in lowered])
     return {"status": "ok" if not hits else "blocked", "checked_payloads": True, "forbidden_hits": sorted(set(hits)), "content_included": False, "path_redacted": True}

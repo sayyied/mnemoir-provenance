@@ -1,6 +1,7 @@
 """Command-line interface for Mnemoir Provenance compat 01."""
 from __future__ import annotations
 import argparse
+import fcntl
 import json
 import os
 import sqlite3
@@ -30,7 +31,7 @@ from .retrieval import RetrievalError, explain, rebuild_retrieval_index, record_
 from .wiki_projection import ProjectionError, write_projection
 from .scoring import ScoringError, apply_scoring_scenario, decay_memory, ranked_memories, review_queue, score_history, score_summary
 from .service import ServiceError, service_restart, service_start, service_status, service_stop
-from .plugin_install import PluginInstallError, install_hermes_plugin
+from .plugin_install import PluginInstallError, _open_absolute_directory, _write_atomic, default_plugin_storage, install_hermes_plugin
 from .plugin_onboarding import bootstrap_profile, plugin_status
 from .worker import WorkerError, clear_stop, enqueue_promotion, request_stop, run_bounded_worker, worker_status
 from .sources import register_sources
@@ -98,7 +99,7 @@ def cmd_migration_inventory(args: argparse.Namespace) -> int:
 def cmd_migration_dry_run(args: argparse.Namespace) -> int:
     with _open_initialized(args.db) as conn:
         try:
-            result = dry_run_migration(conn, profile_id=args.profile_id, honcho_fixture_path=args.honcho_fixture_path, pre_honcho_memory_root=args.pre_honcho_memory_root, session_fixture_path=args.session_fixture_path, obsidian_vault_root=args.obsidian_vault_root, allowed_roots=_csv_arg(args.allowed_roots), query=args.query)
+            result = dry_run_migration(conn, profile_id=args.profile_id, pre_legacy_memory_root=args.pre_legacy_memory_root, session_fixture_path=args.session_fixture_path, obsidian_vault_root=args.obsidian_vault_root, allowed_roots=_csv_arg(args.allowed_roots), query=args.query)
         except MigrationReadinessError as error:
             return _fail_closed(error)
     _json_print(result)
@@ -988,6 +989,16 @@ def cmd_plugin_install(args: argparse.Namespace) -> int:
 
 def cmd_plugin_status(args: argparse.Namespace) -> int:
     result = plugin_status(args.hermes_home, hermes_python=args.hermes_python)
+    home = Path(args.hermes_home).expanduser()
+    config, posture_error, file_present = _read_provider_posture_config(home)
+    if config is None:
+        result['posture_error'] = posture_error
+        result['sync_turn_policy'] = _SHIPPED_SYNC_TURN_POLICY
+        result['writeback_mode'] = _SHIPPED_WRITEBACK_MODE
+        result['daily_profile'] = False
+        result['config_file_present'] = file_present
+    else:
+        result.update(_effective_posture(config, file_present=file_present))
     _json_print(result)
     return 0 if result.get('status') == 'ok' else 2
 
@@ -995,6 +1006,106 @@ def cmd_plugin_bootstrap_profile(args: argparse.Namespace) -> int:
     exit_code, result = bootstrap_profile(hermes_home=args.hermes_home, profile_root=args.profile_root, profile_id=args.profile_id, verify_query=args.verify_query, db_path=args.db_path)
     _json_print(result)
     return exit_code
+_DAILY_CONFIG_FILENAME = 'mnemoir_provenance.json'
+_DAILY_LOCK_NAME = '.mnemoir_provenance.lock'
+_SHIPPED_SYNC_TURN_POLICY = 'audit_only'
+_SHIPPED_WRITEBACK_MODE = 'propose_only'
+_DAILY_SYNC_TURN_POLICY = 'propose_high_signal'
+_DAILY_WRITEBACK_MODE = 'live_overflow_trim'
+
+def _read_daily_config(home: Path) -> dict[str, Any]:
+    """Read the owner-owned provider config file; absent file means empty dict."""
+    try:
+        text = home.joinpath(_DAILY_CONFIG_FILENAME).read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return {}
+    loaded = json.loads(text)
+    if not isinstance(loaded, dict):
+        raise PluginInstallError('invalid_provider_config')
+    return loaded
+
+def _write_daily_config(home: Path, config: dict[str, Any]) -> None:
+    """Atomically persist the owner-owned, mode-0600 provider config file.
+
+    Mirrors the plugin's ``save_config`` write discipline (lock, exclusive
+    temp, fsync, atomic replace, directory fsync) so a partial write can never
+    corrupt the provider posture.
+    """
+    home_fd = _open_absolute_directory(home, create_final=True)
+    try:
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0)
+        lock_fd = os.open(_DAILY_LOCK_NAME, flags, 384, dir_fd=home_fd)
+        try:
+            lock_info = os.fstat(lock_fd)
+            if not stat.S_ISREG(lock_info.st_mode) or lock_info.st_uid != os.geteuid():
+                raise PluginInstallError('unsafe_config_lock')
+            os.fchmod(lock_fd, 384)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            payload = (json.dumps(config, indent=2, sort_keys=True) + '\n').encode('utf-8')
+            _write_atomic(home_fd, _DAILY_CONFIG_FILENAME, payload)
+            os.fsync(home_fd)
+        finally:
+            os.close(lock_fd)
+    finally:
+        os.close(home_fd)
+
+def _set_daily_posture(args: argparse.Namespace, *, enabled: bool, confirmed: bool) -> int:
+    home = Path(args.hermes_home).expanduser()
+    if not home.is_absolute() or '..' in home.parts:
+        _json_print({'status': 'error', 'error': 'hermes_home_must_be_absolute'})
+        return 2
+    config = _read_daily_config(home)
+    previous = {'sync_turn_policy': config.get('sync_turn_policy', _SHIPPED_SYNC_TURN_POLICY), 'writeback_mode': config.get('writeback_mode', _SHIPPED_WRITEBACK_MODE)}
+    if enabled:
+        if not confirmed:
+            _json_print({'status': 'error', 'operation': 'plugin_enable_daily', 'error': 'confirm_required', 'message': 'Pass --confirm to turn on live overflow trim and high-signal promote.', 'config_mutated': False, 'provider_selected': False, 'gateway_restart_performed': False})
+            return 2
+        config['sync_turn_policy'] = _DAILY_SYNC_TURN_POLICY
+        config['writeback_mode'] = _DAILY_WRITEBACK_MODE
+    else:
+        config['sync_turn_policy'] = _SHIPPED_SYNC_TURN_POLICY
+        config['writeback_mode'] = _SHIPPED_WRITEBACK_MODE
+    _write_daily_config(home, config)
+    database, _ = default_plugin_storage(home)
+    result = {'status': 'ok', 'operation': 'plugin_enable_daily' if enabled else 'plugin_disable_daily', 'provider_id': 'mnemoir_provenance', 'config_file': _DAILY_CONFIG_FILENAME, 'daily_profile': enabled, 'sync_turn_policy': config.get('sync_turn_policy'), 'writeback_mode': config.get('writeback_mode'), 'previous': previous, 'database_state': 'present' if database.is_file() else 'empty', 'database_left_in_place': True, 'config_mutated': True, 'provider_selected': False, 'gateway_restart_performed': False, 'ingestion_performed': False, 'promotion_performed': False, 'writeback_performed': False}
+    _json_print(result)
+    return 0
+
+def cmd_plugin_enable_daily(args: argparse.Namespace) -> int:
+    return _set_daily_posture(args, enabled=True, confirmed=bool(args.confirm))
+
+def cmd_plugin_disable_daily(args: argparse.Namespace) -> int:
+    return _set_daily_posture(args, enabled=False, confirmed=bool(args.confirm))
+
+def _read_provider_posture_config(home: Path) -> tuple[dict[str, Any] | None, str | None, bool]:
+    """Read the owner-owned provider config for posture reporting.
+
+    Returns ``(config_dict_or_None, error_code_or_None, file_present)``. An absent
+    file is the normal shipped-defaults case (``{}, None, False``). A present-but-
+    malformed file is reported as ``invalid_provider_config`` (``None, code,
+    True``) but does not raise.
+    """
+    path = home / _DAILY_CONFIG_FILENAME
+    try:
+        text = path.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return ({}, None, False)
+    except OSError:
+        return (None, 'provider_config_unreadable', True)
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError:
+        return (None, 'invalid_provider_config', True)
+    if not isinstance(loaded, dict):
+        return (None, 'invalid_provider_config', True)
+    return (loaded, None, True)
+
+def _effective_posture(config: dict[str, Any], *, file_present: bool) -> dict[str, Any]:
+    """Compute the effective posture with shipped defaults for missing keys."""
+    sync_turn_policy = config.get('sync_turn_policy', _SHIPPED_SYNC_TURN_POLICY)
+    writeback_mode = config.get('writeback_mode', _SHIPPED_WRITEBACK_MODE)
+    daily_profile = sync_turn_policy == _DAILY_SYNC_TURN_POLICY and writeback_mode == _DAILY_WRITEBACK_MODE
+    return {'sync_turn_policy': sync_turn_policy, 'writeback_mode': writeback_mode, 'daily_profile': daily_profile, 'config_file_present': file_present}
 
 def cmd_worker_enqueue(args: argparse.Namespace) -> int:
     with _open_initialized(args.db) as conn:
@@ -1198,8 +1309,7 @@ def build_parser() -> argparse.ArgumentParser:
     migration_dry_run = migration_sub.add_parser('dry-run', help='Import supplied controlled migration sources and produce a compat 15.2 readiness verdict without live activation.')
     migration_dry_run.add_argument('--profile-id', required=True)
     migration_dry_run.add_argument('--allowed-roots', default='')
-    migration_dry_run.add_argument('--honcho-fixture-path')
-    migration_dry_run.add_argument('--pre-honcho-memory-root')
+    migration_dry_run.add_argument('--pre-legacy-memory-root')
     migration_dry_run.add_argument('--session-fixture-path')
     migration_dry_run.add_argument('--obsidian-vault-root')
     migration_dry_run.add_argument('--query', default='durable continuity preference')
@@ -1420,6 +1530,14 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_bootstrap.add_argument('--verify-query', required=True)
     plugin_bootstrap.add_argument('--db-path')
     plugin_bootstrap.set_defaults(func=cmd_plugin_bootstrap_profile)
+    plugin_enable_daily = plugin_sub.add_parser('enable-daily', help='Turn on the explicit daily profile (live overflow trim + high-signal promote) in the owner-owned provider config.')
+    plugin_enable_daily.add_argument('--hermes-home', required=True)
+    plugin_enable_daily.add_argument('--confirm', action='store_true', help='Required: confirms the operator turns on live trim and high-signal promote.')
+    plugin_enable_daily.set_defaults(func=cmd_plugin_enable_daily)
+    plugin_disable_daily = plugin_sub.add_parser('disable-daily', help='Revert to shipped defaults (propose_only / audit_only) and leave the SQLite DB in place.')
+    plugin_disable_daily.add_argument('--hermes-home', required=True)
+    plugin_disable_daily.add_argument('--confirm', action='store_true', help='Optional: records an explicit operator confirmation.')
+    plugin_disable_daily.set_defaults(func=cmd_plugin_disable_daily)
     worker = sub.add_parser('worker', help='Explicit bounded durable lifecycle worker; no daemon or autostart.')
     worker_sub = worker.add_subparsers(dest='worker_command', required=True)
     worker_enqueue = worker_sub.add_parser('enqueue')
@@ -1845,7 +1963,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None=None) -> int:
     parser = build_parser()
-    parser.add_argument('--version', action='version', version='%(prog)s 0.2.6')
+    parser.add_argument('--version', action='version', version='%(prog)s 0.3.0')
     args = parser.parse_args(argv)
     return args.func(args)
 if __name__ == '__main__':

@@ -281,7 +281,6 @@ def _safe_turn_status_base(profile_id: str) -> dict[str, Any]:
         "real_profile_markdown_read": False,
         "real_profile_markdown_writeback": False,
         "hermes_provider_config_mutated": False,
-        "honcho_api_called": False,
         "provider_activation_performed": False,
         "automatic_memory_promotion": False,
         "markdown_writeback_performed": False,
@@ -302,209 +301,6 @@ def _load_completed_turn_fixture(turn_fixture_path: str | Path, *, allowed_turn_
     return payload, metadata
 
 
-_HONCHO_RECORD_TEXT_FIELDS = ("content", "text", "body", "memory", "summary", "claim")
-
-
-def _controlled_allowed_honcho_roots(allowed_honcho_roots: list[str | Path] | tuple[str | Path, ...] | None) -> list[Path]:
-    roots: list[Path] = []
-    for item in allowed_honcho_roots or []:
-        raw = Path(item).expanduser()
-        if ".." in raw.parts or _contains_forbidden_component(raw):
-            continue
-        resolved = raw.resolve(strict=False)
-        if _contains_forbidden_component(resolved) or _contains_live_hermes_profile(resolved):
-            continue
-        roots.append(resolved)
-    return roots
-
-
-def _validated_honcho_fixture_path(honcho_fixture_path: str | Path, *, allowed_honcho_roots: list[str | Path] | tuple[str | Path, ...] | None = None) -> Path:
-    raw = Path(honcho_fixture_path).expanduser()
-    if ".." in raw.parts:
-        raise HermesProviderError("path_traversal_denied")
-    if _contains_forbidden_component(raw):
-        raise HermesProviderError("backup_honcho_import_path_denied")
-    if _contains_live_hermes_profile(raw):
-        raise HermesProviderError("live_hermes_profile_honcho_import_path_denied")
-    _assert_no_symlink_components(raw)
-    path = raw.resolve(strict=False)
-    if _contains_forbidden_component(path):
-        raise HermesProviderError("backup_honcho_import_path_denied")
-    if _contains_live_hermes_profile(path):
-        raise HermesProviderError("live_hermes_profile_honcho_import_path_denied")
-    allowed_roots = _controlled_allowed_honcho_roots(allowed_honcho_roots)
-    if not _is_under_temp(path) and not any(_is_under_path(path, allowed) for allowed in allowed_roots):
-        raise HermesProviderError("non_controlled_honcho_import_source_denied")
-    if not path.exists():
-        raise HermesProviderError("honcho_import_source_missing")
-    if not path.is_file():
-        raise HermesProviderError("honcho_import_source_not_file")
-    if path.suffix.lower() not in {".json", ".jsonl"}:
-        raise HermesProviderError("unsupported_honcho_import_fixture_type")
-    return path
-
-
-def _safe_honcho_status_base(profile_id: str) -> dict[str, Any]:
-    return {
-        "provider": "mnemoir_local",
-        "surface": "honcho_legacy_import_boundary",
-        "profile_id": profile_id,
-        "file_mutation_performed": False,
-        "content_included": False,
-        "path_redacted": True,
-        "redacted_pointers_only": True,
-        "real_profile_markdown_read": False,
-        "real_profile_markdown_writeback": False,
-        "hermes_provider_config_mutated": False,
-        "honcho_api_called": False,
-        "honcho_api_required": False,
-        "provider_activation_performed": False,
-        "automatic_memory_promotion": False,
-        "markdown_writeback_performed": False,
-        "review_required": True,
-    }
-
-
-def _load_honcho_fixture(honcho_fixture_path: str | Path, *, allowed_honcho_roots: list[str | Path] | tuple[str | Path, ...] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
-    path = _validated_honcho_fixture_path(honcho_fixture_path, allowed_honcho_roots=allowed_honcho_roots)
-    try:
-        if path.suffix.lower() == ".jsonl":
-            records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-            payload: dict[str, Any] = {"records": records}
-        else:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-            payload = loaded if isinstance(loaded, dict) else {"records": loaded}
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HermesProviderError("honcho_import_source_unavailable") from exc
-    if not isinstance(payload, dict):
-        raise HermesProviderError("honcho_import_fixture_invalid")
-    metadata = {"fixture_ref": "controlled_honcho_legacy_fixture", "fixture_hash": sha256_text(json_dumps(payload)), "path_redacted": True}
-    return payload, metadata
-
-
-def _honcho_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    candidates = payload.get("records") or payload.get("memories") or payload.get("messages") or payload.get("items")
-    if not isinstance(candidates, list):
-        raise HermesProviderError("honcho_import_fixture_missing_records")
-    records: list[dict[str, Any]] = []
-    for index, item in enumerate(candidates, start=1):
-        if not isinstance(item, dict):
-            raise HermesProviderError("honcho_import_record_invalid")
-        text = ""
-        for field in _HONCHO_RECORD_TEXT_FIELDS:
-            value = item.get(field)
-            if isinstance(value, str) and value.strip():
-                text = value
-                break
-        if not text.strip():
-            raise HermesProviderError("honcho_import_record_missing_content")
-        raw_id = str(item.get("id") or item.get("memory_id") or item.get("message_id") or f"record-{index}")
-        session = str(item.get("session_id") or item.get("thread_id") or payload.get("session_id") or "legacy_honcho")
-        occurred_at = str(item.get("created_at") or item.get("timestamp") or item.get("updated_at") or now_utc())
-        privacy_class = str(item.get("privacy_class") or "private")
-        if privacy_class not in {"public", "internal", "private", "sensitive", "secret"}:
-            privacy_class = "private"
-        records.append({
-            "record_index": index,
-            "record_id": stable_id("honcho_record", raw_id),
-            "session_key": session,
-            "occurred_at": occurred_at,
-            "privacy_class": privacy_class,
-            "content": text,
-            "content_hash": sha256_text(text),
-            "metadata_hash": sha256_text(json_dumps({k: v for k, v in item.items() if k not in _HONCHO_RECORD_TEXT_FIELDS})),
-        })
-    return records
-
-
-def _honcho_pointer(profile_id: str, source_id: str, record: dict[str, Any]) -> str:
-    session_ref = stable_id("session_ref", record["session_key"])
-    return f"honcho-legacy://{profile_id}/{source_id}/{session_ref}/{record['record_id']}"
-
-
-def import_honcho_legacy_fixture(conn: sqlite3.Connection, *, profile_id: str, honcho_fixture_path: str | Path | None = None, allowed_honcho_roots: list[str | Path] | tuple[str | Path, ...] | None = None, actor_id: str | None = None) -> dict[str, Any]:
-    """Import an explicitly supplied local Honcho export fixture as legacy evidence.
-
-    This boundary is dry-run/proposal-only from a live-Hermes perspective: it never
-    calls Honcho APIs, reads live profile markdown, writes markdown, mutates Hermes
-    config, activates providers, or promotes memories without review.
-    """
-    profile_id = _safe_profile_id(profile_id)
-    base = _safe_honcho_status_base(profile_id)
-    if honcho_fixture_path is None:
-        audit_id = write_audit_event(conn, event_type="honcho.legacy.import", target_type="source", target_id="honcho:redacted", actor_id=actor_id, status="degraded", metadata={"profile_id": profile_id, "failure_reason": "honcho_import_source_missing", "content_read": False, "path_redacted": True, "honcho_api_called": False})
-        conn.commit()
-        base.update({"status": "degraded", "failure_reason": "honcho_import_source_missing", "records_imported": 0, "proposal_count": 0, "audit_id": audit_id})
-        return base
-    try:
-        payload, source_metadata = _load_honcho_fixture(honcho_fixture_path, allowed_honcho_roots=allowed_honcho_roots)
-        records = _honcho_records(payload)
-    except HermesProviderError as error:
-        status = "denied" if "denied" in str(error) or "live_hermes" in str(error) else "degraded"
-        audit_id = write_audit_event(conn, event_type="honcho.legacy.import", target_type="source", target_id="honcho:redacted", actor_id=actor_id, status=status, metadata={"profile_id": profile_id, "failure_reason": str(error), "content_read": status != "denied", "path_redacted": True, "honcho_api_called": False})
-        conn.commit()
-        base.update({"status": "unauthorized" if status == "denied" else "degraded", "failure_reason": str(error), "records_imported": 0, "proposal_count": 0, "audit_id": audit_id})
-        return base
-
-    ensure_system_actor(conn)
-    actor = actor_id or ensure_hermes_actor(conn, profile_id)
-    timestamp = now_utc()
-    source_id = stable_id("source", "honcho_legacy", profile_id, source_metadata["fixture_hash"])
-    external_ref = f"honcho-legacy://{profile_id}/{source_id}"
-    conn.execute("""
-        INSERT INTO sources(source_id, source_type, display_name, external_ref, profile_id, overflow_kind, read_authority, write_authority, authority_level, health, last_sync_at, freshness_seconds, failure_reason, provenance_rules_json, privacy_policy_json, created_at, updated_at)
-        VALUES (?, 'honcho', ?, ?, ?, 'honcho', 'read_only', 'propose_only', 'secondary', 'healthy', ?, 0, NULL, ?, ?, ?, ?)
-        ON CONFLICT(source_id) DO UPDATE SET health='healthy', last_sync_at=excluded.last_sync_at, freshness_seconds=0, failure_reason=NULL, updated_at=excluded.updated_at
-        """, (source_id, f"Controlled Honcho legacy import ({profile_id})", external_ref, profile_id, timestamp, json_dumps({"adapter": "honcho_legacy_import_boundary", "controlled_local_fixture_only": True, "path_redacted": True, "live_api_calls_allowed": False}), json_dumps({"default_visibility": "private", "raw_import_status_output_allowed": False, "profile_path_redacted": True}), timestamp, timestamp))
-    snapshot_id = stable_id("snapshot", source_id, source_metadata["fixture_hash"])
-    conn.execute("INSERT OR IGNORE INTO source_snapshots(snapshot_id, source_id, snapshot_hash, snapshot_ref, captured_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?)", (snapshot_id, source_id, source_metadata["fixture_hash"], external_ref, timestamp, json_dumps(source_metadata)))
-    inserted_raw = inserted_evidence = inserted_provenance = 0
-    record_summaries: list[dict[str, Any]] = []
-    raw_event_ids: list[str] = []
-    evidence_ids: list[str] = []
-    proposal_ids: list[str] = []
-    edge_ids: list[str] = []
-    for record in records:
-        session_row_id = stable_id("session", source_id, record["session_key"])
-        session_ref = f"{external_ref}/{stable_id('session_ref', record['session_key'])}"
-        conn.execute("""
-            INSERT INTO sessions(session_id, source_id, external_ref, title, started_at, status, privacy_class, metadata_json, created_at, updated_at)
-            VALUES (?, ?, ?, 'Controlled Honcho legacy import session', ?, 'closed', ?, ?, ?, ?)
-            ON CONFLICT(session_id) DO UPDATE SET status='closed', updated_at=excluded.updated_at
-            """, (session_row_id, source_id, session_ref, timestamp, record["privacy_class"], json_dumps({"profile_id": profile_id, "legacy_session_hash": sha256_text(record["session_key"]), "path_redacted": True}), timestamp, timestamp))
-        pointer = _honcho_pointer(profile_id, source_id, record)
-        event_id = stable_id("event", source_id, record["record_id"], record["content_hash"])
-        event_hash = sha256_text(json_dumps({"event_id": event_id, "source_id": source_id, "content_hash": record["content_hash"]}))
-        cur = conn.execute("""
-            INSERT OR IGNORE INTO raw_events(event_id, session_id, source_id, snapshot_id, speaker_actor_id, event_type, content, content_hash, occurred_at, ingested_at, visibility, privacy_class, source_pointer, provenance_json, write_status, event_hash)
-            VALUES (?, ?, ?, ?, ?, 'import', ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
-            """, (event_id, session_row_id, source_id, snapshot_id, actor, record["content"], record["content_hash"], record["occurred_at"], timestamp, record["privacy_class"], record["privacy_class"], pointer, json_dumps({"profile_id": profile_id, "legacy_record_id": record["record_id"], "metadata_hash": record["metadata_hash"], "path_redacted": True, "controlled_input_only": True, "review_required": True}), event_hash))
-        if cur.rowcount > 0:
-            inserted_raw += 1
-        evidence_id = stable_id("evidence", event_id)
-        cur = conn.execute("""
-            INSERT OR IGNORE INTO evidence_items(evidence_id, kind, source_id, raw_event_id, uri, locator_json, quote_text, content_hash, trust_score, privacy_class, observed_at, created_at)
-            VALUES (?, 'memory', ?, ?, ?, ?, ?, ?, 0.6, ?, ?, ?)
-            """, (evidence_id, source_id, event_id, pointer, json_dumps({"profile_id": profile_id, "legacy_record_id": record["record_id"], "path_redacted": True, "content_hash_only": True}), "Controlled Honcho legacy evidence; raw private content omitted from status output.", record["content_hash"], record["privacy_class"], timestamp, timestamp))
-        if cur.rowcount > 0:
-            inserted_evidence += 1
-        for edge in [("source", source_id, "raw_event", event_id, "produced"), ("raw_event", event_id, "evidence", evidence_id, "quotes")]:
-            edge_id = stable_id("edge", *edge)
-            cur = conn.execute("INSERT OR IGNORE INTO provenance_edges(edge_id, from_type, from_id, to_type, to_id, relation_type, confidence, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, 0.9, ?, ?)", (edge_id, *edge, json_dumps({"adapter": "honcho_legacy_import_boundary", "path_redacted": True}), timestamp))
-            if cur.rowcount > 0:
-                inserted_provenance += 1
-            edge_ids.append(edge_id)
-        proposal = create_proposal(conn, title="Honcho legacy memory continuity proposal", summary="Review controlled Honcho legacy record for possible durable memory continuity.", body=f"Proposal generated from controlled Honcho legacy import evidence. content_hash={record['content_hash']} metadata_hash={record['metadata_hash']}", evidence_ids=[evidence_id], source_event_ids=[event_id], privacy_class=record["privacy_class"], actor_id=actor)
-        raw_event_ids.append(event_id)
-        evidence_ids.append(evidence_id)
-        proposal_ids.append(proposal["proposal_id"])
-        record_summaries.append({"record_id": record["record_id"], "raw_event_id": event_id, "evidence_id": evidence_id, "proposal_id": proposal["proposal_id"], "content_hash": record["content_hash"], "source_pointer": pointer, "content_included": False, "path_redacted": True, "review_required": True})
-    audit_id = write_audit_event(conn, event_type="honcho.legacy.import", target_type="source", target_id=source_id, actor_id=actor, status="ok", metadata={"profile_id": profile_id, "source_id": source_id, "snapshot_hash": source_metadata["fixture_hash"], "records_imported": len(records), "raw_event_ids": raw_event_ids, "evidence_ids": evidence_ids, "proposal_ids": proposal_ids, "content_hashes": [item["content_hash"] for item in record_summaries], "content_included": False, "path_redacted": True, "honcho_api_called": False, "automatic_memory_promotion": False, "markdown_writeback_performed": False, "review_required": True})
-    conn.commit()
-    base.update({"status": "ok", "source_id": source_id, "snapshot_hash": source_metadata["fixture_hash"], "records_imported": len(records), "inserted_raw_events": inserted_raw, "inserted_evidence_items": inserted_evidence, "inserted_provenance_edges": inserted_provenance, "proposal_count": len(proposal_ids), "raw_event_ids": raw_event_ids, "evidence_ids": evidence_ids, "provenance_edge_ids": edge_ids, "proposal_ids": proposal_ids, "record_summaries": record_summaries, "source_ref": external_ref, "audit_id": audit_id})
-    return base
-
-
 def _normalize_turn_payload(payload: dict[str, Any], *, profile_id: str, session_id: str | None = None) -> dict[str, Any]:
     profile_id = _safe_profile_id(profile_id)
     user_content = str(payload.get("user_content") or "")
@@ -523,7 +319,7 @@ def propose_completed_turn_sync(conn: sqlite3.Connection, *, profile_id: str, tu
     """Create source-grounded proposal rows from a controlled completed-turn input.
 
     This is proposal-only: it never promotes memories, writes markdown, reads live
-    profile markdown, mutates Hermes config, calls Honcho, or activates a provider.
+    profile markdown, mutates Hermes config, calls a legacy import API, or activates a provider.
     """
     profile_id = _safe_profile_id(profile_id)
     base = _safe_turn_status_base(profile_id)
@@ -889,7 +685,6 @@ def ingest_profile_markdown(conn: sqlite3.Connection, profile_id: str, profile_r
         "real_profile_markdown_read": False,
         "real_profile_markdown_writeback": False,
         "hermes_provider_config_mutated": False,
-        "honcho_api_called": False,
     }
 
 
@@ -1012,21 +807,21 @@ def markdown_writeback_status(profile_id: str) -> dict[str, Any]:
 def controlled_markdown_writeback_propose(conn: sqlite3.Connection, *, profile_id: str, fixture_root: str | Path, file_name: str, content: str, authorization: dict[str, Any] | None = None, actor_id: str | None = None, operation: str = "replace") -> dict[str, Any]:
     _safe_profile_id(profile_id)
     result = propose_writeback(conn, fixture_root=fixture_root, file_name=file_name, content=content, authorization=authorization, actor_id=actor_id, operation=operation)
-    result.update({"provider": "mnemoir_local", "surface": "controlled_markdown_writeback_execution", "profile_id": profile_id, "real_profile_markdown_writeback": False, "hermes_provider_config_mutated": False, "honcho_api_called": False})
+    result.update({"provider": "mnemoir_local", "surface": "controlled_markdown_writeback_execution", "profile_id": profile_id, "real_profile_markdown_writeback": False, "hermes_provider_config_mutated": False})
     return result
 
 
 def controlled_markdown_writeback_execute(conn: sqlite3.Connection, *, profile_id: str, proposal_id: str, fixture_root: str | Path, file_name: str, expected_before_hash: str, expected_after_hash: str | None = None, authorization: dict[str, Any] | None = None) -> dict[str, Any]:
     _safe_profile_id(profile_id)
     result = writeback_fixture(conn, proposal_id=proposal_id, fixture_root=fixture_root, file_name=file_name, expected_before_hash=expected_before_hash, expected_after_hash=expected_after_hash, authorization=authorization)
-    result.update({"provider": "mnemoir_local", "surface": "controlled_markdown_writeback_execution", "profile_id": profile_id, "real_profile_markdown_writeback": False, "hermes_provider_config_mutated": False, "honcho_api_called": False})
+    result.update({"provider": "mnemoir_local", "surface": "controlled_markdown_writeback_execution", "profile_id": profile_id, "real_profile_markdown_writeback": False, "hermes_provider_config_mutated": False})
     return result
 
 
 def controlled_markdown_writeback_rollback(conn: sqlite3.Connection, *, profile_id: str, proposal_id: str, fixture_root: str | Path, file_name: str, previous_content: str, expected_current_hash: str | None = None, authorization: dict[str, Any] | None = None) -> dict[str, Any]:
     _safe_profile_id(profile_id)
     result = rollback_fixture(conn, proposal_id=proposal_id, fixture_root=fixture_root, file_name=file_name, previous_content=previous_content, expected_current_hash=expected_current_hash, authorization=authorization)
-    result.update({"provider": "mnemoir_local", "surface": "controlled_markdown_writeback_rollback", "profile_id": profile_id, "real_profile_markdown_writeback": False, "hermes_provider_config_mutated": False, "honcho_api_called": False})
+    result.update({"provider": "mnemoir_local", "surface": "controlled_markdown_writeback_rollback", "profile_id": profile_id, "real_profile_markdown_writeback": False, "hermes_provider_config_mutated": False})
     return result
 
 
@@ -1354,7 +1149,7 @@ def context_packet(
             "profile_paths_redacted": True,
             "profile_source_filter_required": bool(profile_id),
             "fallback_to_repo_docs_allowed": False if profile_id else None,
-            "fallback_to_honcho_allowed": False if profile_id else None,
+            "fallback_to_legacy_import_allowed": False if profile_id else None,
             "fallback_to_session_search_allowed": False if profile_id else None,
             "fallback_to_obsidian_allowed": False if profile_id else None,
             "budget_authorization_before_packing_required": True,
@@ -1405,7 +1200,6 @@ def tool_manifest() -> dict[str, Any]:
             {"name": "overflow_plan", "description": "Plan reviewable trim/compaction candidates from already-ingested Mnemoir overflow rows without reading or writing markdown files."},
             {"name": "ingest_profile", "description": "Read-only ingest explicitly supplied temp profile MEMORY.md/USER.md."},
             {"name": "sync_turn_proposal", "description": "Create proposal-only memory candidates from controlled completed-turn fixtures."},
-            {"name": "import_honcho_legacy", "description": "Import controlled local Honcho export fixtures as source-grounded draft/proposal legacy records without live Honcho API calls."},
             {"name": "writeback_status", "description": "Report default denied/propose_only markdown writeback posture."},
             {"name": "controlled_markdown_writeback", "description": "Execute approved reversible markdown writeback only against explicit temporary controlled fixtures with expected-before-hash, audit, read-back, and rollback controls."},
         ],

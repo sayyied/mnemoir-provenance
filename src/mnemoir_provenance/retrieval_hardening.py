@@ -1,7 +1,7 @@
 """compat 15.0 deterministic retrieval/evidence-selection hardening helpers.
 
 This module is deliberately local-only and provider-free. It contains no live Hermes
-profile access, no Honcho calls, and no hosted/vector database dependency.
+profile access, no legacy import calls, and no hosted/vector database dependency.
 """
 
 from __future__ import annotations

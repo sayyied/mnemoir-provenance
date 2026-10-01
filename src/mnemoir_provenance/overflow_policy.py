@@ -18,6 +18,9 @@ import tempfile
 import time
 from typing import Any
 
+from .audit import write_audit_event
+from .db import json_dumps, now_utc, sha256_text, stable_id
+
 MARKDOWN_LIMITS: dict[str, int] = {"MEMORY.md": 2200, "USER.md": 1375}
 MARKDOWN_KINDS: dict[str, str] = {"MEMORY.md": "memory_md", "USER.md": "user_md"}
 WARNING_THRESHOLD = 0.80
@@ -48,6 +51,298 @@ class OverflowPolicy:
 
 
 DEFAULT_POLICY = OverflowPolicy()
+
+
+@dataclass(frozen=True)
+class AutoPromotePolicy:
+    """Thresholds for the high-signal auto-promote gate.
+
+    The gate is conservative and fail-closed: it reuses the same protection
+    thresholds the overflow planner already treats as ``higher_approval_required``
+    so that a block auto-promotes only when it would not otherwise need a human.
+    """
+
+    high_retention_threshold: float = 0.75
+    established_stability_threshold: float = 0.75
+    contradiction_threshold: float = 0.55
+    min_age_days: float = 7.0
+    min_stability: float = 0.45
+
+
+DEFAULT_AUTO_PROMOTE_POLICY = AutoPromotePolicy()
+
+
+def evaluate_auto_promote(
+    *,
+    high_signal: bool,
+    flags: set[str],
+    retention_strength: float,
+    stability: float,
+    contradiction_score: float,
+    conflicting_memory_relationships: int,
+    memory_statuses: list[str],
+    age_days: float | None,
+    duplicate_rank: int,
+    policy: AutoPromotePolicy = DEFAULT_AUTO_PROMOTE_POLICY,
+) -> dict[str, Any]:
+    """Pure decision for whether a high-signal block may auto-promote to durable
+    memory.
+
+    No I/O: every input is a plain value (``age_days`` is computed by the caller,
+    ``flags`` by :func:`_content_flags`). Fail-closed: any protection condition
+    yields ``promote=False``. The protection conditions mirror the overflow
+    planner's ``higher_approval_required`` reasons, so auto-promotion never
+    bypasses a condition that would otherwise require a human.
+    """
+    protected_reasons: list[str] = []
+    if "sensitive" in flags:
+        protected_reasons.append("sensitive_or_secret_content")
+    if "policy_protected" in flags:
+        protected_reasons.append("policy_protected")
+    if "high_retention" in flags:
+        protected_reasons.append("high_retention")
+    if retention_strength >= policy.high_retention_threshold:
+        protected_reasons.append("high_retention_strength")
+    if stability >= policy.established_stability_threshold:
+        protected_reasons.append("established_stability")
+    if (
+        contradiction_score >= policy.contradiction_threshold
+        or conflicting_memory_relationships > 0
+        or "contradicted" in memory_statuses
+    ):
+        protected_reasons.append("conflicting_or_contradicted")
+    if age_days is not None and age_days < policy.min_age_days:
+        protected_reasons.append("recent_entry")
+
+    result: dict[str, Any] = {
+        "surface": "auto_promote_gate",
+        "high_signal": bool(high_signal),
+        "flags": sorted(flags),
+        "retention_strength": float(retention_strength),
+        "stability": float(stability),
+        "contradiction_score": float(contradiction_score),
+        "conflicting_memory_relationships": int(conflicting_memory_relationships),
+        "duplicate_rank": int(duplicate_rank),
+        "age_days": None if age_days is None else float(age_days),
+        "promote": False,
+        "status": "pending",
+        "reasons": [],
+        "io_performed": False,
+        "content_included": False,
+    }
+
+    if protected_reasons:
+        result["status"] = "protected"
+        result["reasons"] = protected_reasons
+        return result
+    if not high_signal:
+        result["status"] = "not_high_signal"
+        result["reasons"] = ["not_flagged_high_signal"]
+        return result
+    if duplicate_rank > 0:
+        result["status"] = "duplicate"
+        result["reasons"] = ["duplicate_content"]
+        return result
+    if stability < policy.min_stability:
+        result["status"] = "insufficient_stability"
+        result["reasons"] = ["stability_below_promotion_minimum"]
+        return result
+    result["promote"] = True
+    result["status"] = "promoted"
+    result["reasons"] = ["high_signal_stable_unique"]
+    return result
+
+
+def is_high_signal_content(content: str) -> bool:
+    """Pure high-signal predicate for a block or completed-turn body.
+
+    True when the content is substantive (>=3 words longer than 3 chars) and not
+    protected by the gate's protection flags (no ``sensitive`` /
+    ``policy_protected`` / ``high_retention``). Used both by the overflow
+    auto-promote path and the ``propose_high_signal`` completed-turn policy.
+    """
+    flags = _content_flags(content, "private", {}, {})
+    if flags & {"sensitive", "policy_protected", "high_retention"}:
+        return False
+    words = [word for word in content.lower().split() if len(word) > 3]
+    return len(words) >= 3
+
+
+def _high_signal_for_block(conn: sqlite3.Connection, *, event_id: str, content: str, flags: set[str]) -> bool:
+    """Deterministic, leak-safe high-signal predicate for one trimmed block.
+
+    A removed block is a high-signal *promotion candidate* when it is not
+    protected by the gate's protection flags (no ``sensitive`` /
+    ``policy_protected`` / ``high_retention``) and it carries a substantive,
+    non-boilerplate body. The gate's stability/recency/duplicate/contradiction
+    inputs (computed from the block's linked memories) decide the promotable
+    band downstream, so this predicate only gates *entry* into the candidate
+    set; it never promotes on its own. Idempotence is guaranteed separately by
+    the stable ``memory_id`` in :func:`promote_high_signal_blocks`.
+    """
+    return is_high_signal_content(content)
+
+
+def promote_high_signal_blocks(
+    conn: sqlite3.Connection,
+    *,
+    operation_id: str,
+    profile_id: str,
+    file_name: str,
+    removed_blocks: list[str],
+    before_hash: str,
+    after_hash: str,
+    policy: AutoPromotePolicy = DEFAULT_AUTO_PROMOTE_POLICY,
+) -> dict[str, Any]:
+    """Gate and promote the high-signal subset of a just-committed overflow trim.
+
+    Called by the live-overflow writeback path *after* the removed blocks are
+    committed as cited evidence, and still inside the same
+    ``WritebackAuthorization`` scope (the trim is already hash-bound to
+    ``before_hash``/``after_hash``). It runs the pure :func:`evaluate_auto_promote`
+    gate on each removed block and, for the gated subset only, writes an active
+    durable memory. Every promotion is idempotent (stable memory id) and
+    fail-closed: a gate error or write error leaves the block evidence-only and
+    is reported, never raised. No markdown is read or written here.
+    """
+    source_id = f"live_overflow_trim:{profile_id}:{file_name}"
+    promoted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    total = len(removed_blocks)
+    for index, block in enumerate(removed_blocks, 1):
+        content_hash = sha256_text(block)
+        event_id = stable_id("live_overflow_removed", source_id, content_hash, str(index), before_hash)
+        evidence_id = stable_id("evidence", event_id, content_hash)
+        flags = _content_flags(block, "private", {}, {})
+        signals = _memory_signals(conn, event_id)
+        # Age is the block's *established* age: the oldest linked durable
+        # memory's creation time. A block with no linked memory is not yet
+        # established (age None; it is still gated down by stability below).
+        age_days = None
+        if signals["linked_memory_ids"]:
+            placeholders = ",".join("?" for _ in signals["linked_memory_ids"])
+            oldest = conn.execute(
+                f"SELECT MIN(created_at) AS c FROM memories WHERE memory_id IN ({placeholders})",
+                tuple(signals["linked_memory_ids"]),
+            ).fetchone()
+            oldest_time = _parse_time(oldest["c"] if oldest else None)
+            if oldest_time is not None:
+                age_days = max(0.0, (datetime.now(timezone.utc) - oldest_time).total_seconds() / 86400.0)
+        # Position-aware duplicate rank (0 for the first occurrence, 1 for the
+        # second, ...), matching the overflow planner's duplicate semantics.
+        duplicate_rank = sum(1 for j in range(1, index) if sha256_text(removed_blocks[j - 1]) == content_hash)
+        high_signal = _high_signal_for_block(conn, event_id=event_id, content=block, flags=flags)
+        decision = evaluate_auto_promote(
+            high_signal=high_signal,
+            flags=flags,
+            retention_strength=signals["max_retention_strength"],
+            stability=signals["max_stability"],
+            contradiction_score=signals["max_contradiction_score"],
+            conflicting_memory_relationships=signals["conflicting_memory_relationships"],
+            memory_statuses=signals["memory_statuses"],
+            age_days=age_days,
+            duplicate_rank=duplicate_rank,
+            policy=policy,
+        )
+        entry = {
+            "block_index": index,
+            "source_event_id": event_id,
+            "evidence_id": evidence_id,
+            "content_hash": content_hash,
+            "gate_status": decision["status"],
+            "gate_reasons": decision["reasons"],
+            "high_signal": decision["high_signal"],
+        }
+        if not decision["promote"]:
+            skipped.append(entry)
+            continue
+        memory_id = stable_id("memory", "overflow_auto_promote", operation_id, content_hash, str(index))
+        existing = conn.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory_id,)).fetchone()
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO memories(
+                  memory_id, scope, owner_actor_id, memory_type, status, current_version,
+                  confidence, salience, novelty, stability, privacy_class, created_at, updated_at
+                ) VALUES (?, ?, ?, 'semantic', 'active', 1, 0.7, 0.2, 0.2, ?, 'private', ?, ?)
+                """,
+                (memory_id, "actor", None, decision["stability"], now_utc(), now_utc()),
+            )
+            version_hash = sha256_text(json_dumps({"memory_id": memory_id, "version": 1, "title": "Overflow auto-promote", "summary": block, "body": block}))
+            conn.execute(
+                """
+                INSERT INTO memory_versions(
+                  memory_id, version, title, summary, body, change_type, changed_by_actor_id,
+                  reason, confidence, version_hash, previous_version_hash, metadata_json, created_at
+                ) VALUES (?, 1, ?, ?, ?, 'create', NULL, ?, 0.7, ?, NULL, ?, ?)
+                """,
+                (
+                    memory_id,
+                    "Overflow auto-promote",
+                    block,
+                    block,
+                    "auto-promoted from overflow trim " + operation_id,
+                    version_hash,
+                    json_dumps(
+                        {
+                            "operation": "overflow_auto_promote",
+                            "operation_id": operation_id,
+                            "before_hash": before_hash,
+                            "after_hash": after_hash,
+                            "source_event_id": event_id,
+                            "evidence_id": evidence_id,
+                            "gate_status": decision["status"],
+                            "gate_reasons": decision["reasons"],
+                            "path_redacted": True,
+                        }
+                    ),
+                    now_utc(),
+                ),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO memory_evidence(memory_id, version, evidence_id, role, weight, created_at) VALUES (?, 1, ?, 'primary', 1.0, ?)",
+                (memory_id, evidence_id, now_utc()),
+            )
+            write_audit_event(
+                conn,
+                event_type="memory.auto_promote",
+                target_type="memory",
+                target_id=memory_id,
+                status="ok",
+                actor_id=None,
+                metadata={
+                    "operation_id": operation_id,
+                    "profile_id": profile_id,
+                    "file_basename": file_name,
+                    "source_event_id": event_id,
+                    "evidence_id": evidence_id,
+                    "gate_status": decision["status"],
+                    "gate_reasons": decision["reasons"],
+                    "content_hash": content_hash,
+                    "content_included": False,
+                    "path_redacted": True,
+                },
+            )
+        entry["memory_id"] = memory_id
+        entry["promoted"] = True
+        promoted.append(entry)
+    conn.commit()
+    return {
+        "status": "ok",
+        "surface": "overflow_auto_promote",
+        "operation_id": operation_id,
+        "profile_id": profile_id,
+        "file_basename": file_name,
+        "policy_version": "auto_promote_gate_v1",
+        "removed_block_count": total,
+        "promoted_count": len(promoted),
+        "skipped_count": len(skipped),
+        "promoted": promoted,
+        "skipped": skipped,
+        "io_performed": True,
+        "content_included": False,
+        "path_redacted": True,
+    }
 
 
 def _safe_profile_id(profile_id: str) -> str:
@@ -416,7 +711,6 @@ def plan_overflow_trim(
             "real_profile_markdown_read": False,
             "real_profile_markdown_writeback": False,
             "hermes_provider_config_mutated": False,
-            "honcho_api_called": False,
         }
 
     candidates: list[dict[str, Any]] = []
@@ -565,7 +859,6 @@ def plan_overflow_trim(
         "real_profile_markdown_read": False,
         "real_profile_markdown_writeback": False,
         "hermes_provider_config_mutated": False,
-        "honcho_api_called": False,
     }
 
 

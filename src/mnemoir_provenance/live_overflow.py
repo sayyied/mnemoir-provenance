@@ -19,7 +19,13 @@ import time
 from typing import Any, Callable
 
 from .db import configure_connection, json_dumps, now_utc, sha256_text, stable_id
-from .overflow_policy import DEFAULT_POLICY, OverflowPolicy, compute_markdown_pressure
+from .overflow_policy import (
+    DEFAULT_AUTO_PROMOTE_POLICY,
+    DEFAULT_POLICY,
+    OverflowPolicy,
+    compute_markdown_pressure,
+    promote_high_signal_blocks,
+)
 from .scope import ensure_profile_actor_scope
 
 # Retained only as a migration sentinel. It is deliberately never accepted.
@@ -439,6 +445,28 @@ def _record_removed_blocks(conn, *, operation_id,profile_id,file_name,removed_bl
       conn.execute("INSERT OR IGNORE INTO evidence_items(evidence_id,kind,source_id,raw_event_id,uri,locator_json,quote_text,content_hash,trust_score,privacy_class,observed_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",(evid,"receipt",source_id,eid,pointer,json_dumps({"profile_id":profile_id,"file":file_name,"index":i}),block,bh,1.0,"private",timestamp,timestamp)); ids.append(evid)
     return ids
 
+def _promote_after_evidence(conn, *, operation_id, profile_id, file_name, removed_blocks, before_hash, after_hash):
+    """Gate + promote the high-signal subset after the evidence commit.
+
+    Still inside the same ``WritebackAuthorization`` scope (the trim is already
+    hash-bound to ``before_hash``/``after_hash``). Fail-closed relative to the
+    already-committed trim evidence: a promotion error degrades the summary but
+    never fails the committed trim.
+    """
+    try:
+        summary = promote_high_signal_blocks(
+            conn, operation_id=operation_id, profile_id=profile_id, file_name=file_name,
+            removed_blocks=removed_blocks, before_hash=before_hash, after_hash=after_hash)
+        return {"auto_promote": "ok", "promoted_count": summary["promoted_count"],
+                "skipped_count": summary["skipped_count"],
+                "promoted_memory_ids": [entry["memory_id"] for entry in summary["promoted"]]}
+    except Exception as exc:
+        try: conn.rollback()
+        except sqlite3.Error: pass
+        code = exc.args[0] if isinstance(exc, LiveOverflowError) and exc.args else type(exc).__name__
+        return {"auto_promote": "degraded", "promoted_count": 0, "skipped_count": len(removed_blocks),
+                "promoted_memory_ids": [], "auto_promote_error": code}
+
 def execute_writeback(conn: sqlite3.Connection, request: WritebackRequest, authorization: WritebackAuthorization, *,
     backup_root: str|Path, policy: OverflowPolicy=DEFAULT_POLICY, fault: Callable[[str],None]|None=None,
     before_replace: Callable[[],None]|None=None) -> dict[str,Any]:
@@ -505,12 +533,15 @@ def execute_writeback(conn: sqlite3.Connection, request: WritebackRequest, autho
         spool_text,_=_read_private_at(op_fd,spool_name); loaded=json.loads(spool_text); _verify_spool(loaded,authorization); fault("evidence_finalize")
         conn.execute("BEGIN IMMEDIATE"); ids=_record_removed_blocks(conn,operation_id=op,profile_id=request.profile_id,file_name=path.name,removed_blocks=loaded["removed_blocks"],before_hash=before_hash,after_hash=sha256_text(after)); conn.commit()
         os.rename(spool_name,spool_name.replace(".json",".committed.json"),src_dir_fd=op_fd,dst_dir_fd=op_fd); fault("audit_finalize")
+        promote_summary=_promote_after_evidence(conn,operation_id=op,profile_id=request.profile_id,file_name=path.name,removed_blocks=loaded["removed_blocks"],before_hash=before_hash,after_hash=sha256_text(after))
         target_reached=bool(plan.get("target_reached")); final_state="completed" if target_reached else "completed_partial"
         _state(conn,op,final_state,error_code=None if target_reached else "target_unreachable",evidence_state="committed",audit_state="committed",completed_at=now_utc())
         try: os.unlink(recovery_auth_name,dir_fd=op_fd)
         except FileNotFoundError: pass
         return {**_result(conn,op,True),"removed_block_count":len(ids),"before_chars":len(before),"after_chars":len(after),
-                "target_reached":target_reached,"plan_reason":plan.get("reason")}
+                "target_reached":target_reached,"plan_reason":plan.get("reason"),
+                "auto_promote":promote_summary["auto_promote"],"promoted_count":promote_summary["promoted_count"],
+                "promoted_memory_ids":promote_summary["promoted_memory_ids"]}
        finally:
         try: os.unlink(temp_name,dir_fd=target_fd)
         except FileNotFoundError: pass
@@ -614,13 +645,17 @@ def reconcile_writeback(conn, operation_id: str, *, backup_root: str|Path,
                     file_name=path.name,removed_blocks=payload["removed_blocks"],before_hash=payload["before_hash"],after_hash=payload["after_hash"])
                 conn.commit()
                 if is_pending: os.rename(pending_name,committed_name,src_dir_fd=op_fd,dst_dir_fd=op_fd)
+                promote_summary=_promote_after_evidence(conn,operation_id=operation_id,profile_id=authorization.profile_id,
+                    file_name=path.name,removed_blocks=payload["removed_blocks"],before_hash=payload["before_hash"],after_hash=payload["after_hash"])
                 target_reached=bool(payload.get("target_reached",True)); final_state="completed" if target_reached else "completed_partial"
                 _state(conn,operation_id,final_state,error_code=None if target_reached else "target_unreachable",
                        expected_after_hash=payload["after_hash"],evidence_state="committed",audit_state="committed",completed_at=now_utc())
                 try: os.unlink("recovery-authorization.json",dir_fd=op_fd)
                 except FileNotFoundError: pass
                 return {**_result(conn,operation_id,False),"next_action":"none","reconciled_evidence_count":len(ids),
-                        "target_reached":target_reached,"plan_reason":payload.get("plan_reason")}
+                        "target_reached":target_reached,"plan_reason":payload.get("plan_reason"),
+                        "auto_promote":promote_summary["auto_promote"],"promoted_count":promote_summary["promoted_count"],
+                        "promoted_memory_ids":promote_summary["promoted_memory_ids"]}
             if current_hash==payload["before_hash"]:
                 _state(conn,operation_id,"failed_before_mutation",evidence_state="pending",audit_state="committed",completed_at=now_utc())
                 return {**_result(conn,operation_id,False),"next_action":"retry_with_new_authorization"}
