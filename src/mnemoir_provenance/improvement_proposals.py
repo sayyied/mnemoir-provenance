@@ -67,7 +67,7 @@ _TARGET_METRICS_BY_FAILURE = {
 }
 _SECRET_OR_PRIVATE_MARKERS = re.compile(
     r"(api[_-]?key|token|secret|password|credential|auth\.json|sk-[A-Za-z0-9]|"
-    r"MEMORY\.md|USER\.md|\.hermes/profiles|-----BEGIN|provider_auth|gateway|cron|systemd|autostart|honcho api)",
+    r"MEMORY\.md|USER\.md|\.hermes/profiles|-----BEGIN|provider_auth|gateway|cron|systemd|autostart)",
     re.IGNORECASE,
 )
 _ABSOLUTE_PATH = re.compile(r"(^|\s)/(home|Users|var|etc|root|tmp|mnt|opt)/[^\s]+")

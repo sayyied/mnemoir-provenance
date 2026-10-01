@@ -2,7 +2,7 @@
 
 All notable user-visible changes are recorded here.
 
-## 0.2.6 — 2026-09-18
+## 0.3.0 — 2026-09-18
 
 - Preserve original markdown bytes when no blocks can safely be removed: blocked overflow trims no longer perform formatting-only writes, create backup/spool artifacts, or ingest nonexistent removed evidence.
 - Bind profile sources to stable active actors and attributable read grants before cited recall; reject cross-profile actor reassignment and preserve caller-owned transactions.

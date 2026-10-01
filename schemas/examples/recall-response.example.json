@@ -1,6 +1,6 @@
 {
   "missing_sources": [
-    "honcho"
+    "legacy_import"
   ],
   "query": "What did we decide about Council memory?",
   "results": [
@@ -23,7 +23,7 @@
       "status": "healthy"
     },
     {
-      "source_id": "honcho",
+      "source_id": "legacy_import",
       "status": "unavailable"
     }
   ],

@@ -2,7 +2,7 @@
 
 This adapter is intentionally inert until a Hermes profile explicitly selects
 ``memory.provider: mnemoir_provenance``. It does not mutate Hermes config,
-restart gateways, or call Honcho. Profile Markdown is read, and may be written,
+restart gateways, or call a legacy import API. Profile Markdown is read, and may be written,
 only when the operator also selects the bounded ``live_overflow_trim`` policy;
 other writeback modes remain non-mutating.
 """
@@ -13,7 +13,6 @@ import fcntl
 import json
 import os
 import stat
-import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional
@@ -26,6 +25,7 @@ from mnemoir_provenance.curation import CurationError, create_proposal
 from mnemoir_provenance.db import connect, initialize_database, now_utc
 from mnemoir_provenance.plugin_install import default_plugin_storage
 from mnemoir_provenance.live_overflow import live_overflow_status, run_live_overflow_coordinator
+from mnemoir_provenance.overflow_policy import is_high_signal_content
 from mnemoir_provenance.hermes_provider import (
     context_packet,
     markdown_writeback_status,
@@ -33,7 +33,6 @@ from mnemoir_provenance.hermes_provider import (
     overflow_pressure_status,
     provider_status,
     ingest_profile_markdown,
-    import_honcho_legacy_fixture,
     propose_completed_turn_sync,
 )
 from mnemoir_provenance.source_adapters import import_obsidian_vault_fixture, import_session_search_fixture
@@ -134,18 +133,6 @@ _OBSIDIAN_IMPORT_SCHEMA = {
     },
 }
 
-_HONCHO_IMPORT_SCHEMA = {
-    "name": "cmc_import_honcho_legacy",
-    "description": "Import an explicitly supplied controlled local Honcho export fixture into Mnemoir as source-grounded legacy draft/proposal records. Never calls live Honcho APIs, reads profile markdown, writes markdown, or mutates Hermes config.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "honcho_fixture_path": {"type": "string", "description": "Controlled local JSON/JSONL Honcho export fixture path."}
-        },
-        "required": ["honcho_fixture_path"],
-    },
-}
-
 _CONTEXT_SCHEMA = {
     "name": "cmc_context",
     "description": "Return cited, source-grounded local Mnemoir Provenance context for a query. Empty/degraded status is explicit; uncited recall is not allowed.",
@@ -223,7 +210,7 @@ _OVERFLOW_PLAN_SCHEMA = {
 
 _SYNC_TURN_PROPOSAL_SCHEMA = {
     "name": "cmc_sync_turn_proposal",
-    "description": "Create a proposal-only memory candidate from a controlled completed-turn JSON fixture. Does not promote memory, write markdown, activate provider config, or call Honcho.",
+    "description": "Create a proposal-only memory candidate from a controlled completed-turn JSON fixture. Does not promote memory, write markdown, activate provider config, or call a legacy import API.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -244,6 +231,38 @@ _INGEST_PROFILE_SCHEMA = {
         "required": ["profile_root"],
     },
 }
+
+
+# Legacy ``cmc_*`` tool name -> public ``mnemoir_*`` alias. Both resolve to the
+# same handler: the alias is the public-facing identity, the legacy name is
+# retained for one minor version. The pairing drives both the exposed tool
+# schemas and the dispatch normalization.
+_TOOL_NAME_PAIRS: tuple[tuple[str, str], ...] = (
+    ("cmc_context", "mnemoir_context"),
+    ("cmc_search", "mnemoir_search"),
+    ("cmc_sources", "mnemoir_sources"),
+    ("cmc_overflow_pressure", "mnemoir_overflow_pressure"),
+    ("cmc_overflow_plan", "mnemoir_overflow_plan"),
+    ("cmc_ingest_profile_markdown", "mnemoir_ingest_profile_markdown"),
+    ("cmc_sync_turn_proposal", "mnemoir_sync_turn_proposal"),
+    ("cmc_import_session_search", "mnemoir_import_session_search"),
+    ("cmc_import_obsidian_vault", "mnemoir_import_obsidian_vault"),
+    ("cmc_propose_memory", "mnemoir_propose_memory"),
+    ("cmc_writeback_status", "mnemoir_writeback_status"),
+)
+_ALIAS_TO_BASE: dict[str, str] = {alias: base for base, alias in _TOOL_NAME_PAIRS}
+_BASE_TO_ALIAS: dict[str, str] = {base: alias for base, alias in _TOOL_NAME_PAIRS}
+
+
+def _alias_tool_schema(base: dict[str, Any], alias_name: str) -> dict[str, Any]:
+    """Return a copy of a tool schema under a ``mnemoir_*`` alias name.
+
+    The alias dispatches to the same handler as the legacy ``cmc_*`` tool; only
+    the exposed name changes, so the schema and parameters are shared.
+    """
+    schema = dict(base)
+    schema["name"] = alias_name
+    return schema
 
 
 def _open_owned_config_dir(home: Path, *, create: bool = False) -> int:
@@ -310,7 +329,7 @@ def _open_config_lock(dir_fd: int) -> int:
         raise
 
 
-def _load_yaml_council_config(path: Path) -> dict[str, Any]:
+def _load_yaml_mnemoir_config(path: Path) -> dict[str, Any]:
     """Parse the minimal non-secret mnemoir_provenance config block Hermes loads.
 
     The isolated activation harness writes only flat scalar/list values, so this
@@ -368,7 +387,6 @@ def _load_config(hermes_home: str | Path | None = None) -> dict[str, Any]:
         "source_families": ["hermes_markdown_overflow", "hermes_profile_memory"],
         "controlled_profile_roots": [],
         "controlled_turn_roots": [],
-        "controlled_honcho_import_roots": [],
         "controlled_session_search_roots": [],
         "controlled_obsidian_vault_roots": [],
         "context_budget_chars": _DEFAULT_CONTEXT_BUDGET_CHARS,
@@ -376,7 +394,7 @@ def _load_config(hermes_home: str | Path | None = None) -> dict[str, Any]:
     if home:
         yaml_path = home / "config.yaml"
         try:
-            cfg.update({k: v for k, v in _load_yaml_council_config(yaml_path).items() if v is not None})
+            cfg.update({k: v for k, v in _load_yaml_mnemoir_config(yaml_path).items() if v is not None})
         except Exception:
             cfg["config_error"] = "invalid_mnemoir_provenance_yaml"
         path = home / "mnemoir_provenance.json"
@@ -410,8 +428,12 @@ def _limit(value: Any, default: int = 5, maximum: int = 10) -> int:
     return max(1, min(maximum, n))
 
 
-class CouncilMemoryCoreProvider(MemoryProvider):
-    """Hermes MemoryProvider wrapper over the local Mnemoir Provenance DB."""
+class MnemoirProvenanceProvider(MemoryProvider):
+    """Hermes MemoryProvider wrapper over the local Mnemoir Provenance DB.
+
+    The class is named for the public identity. ``CouncilMemoryCoreProvider``
+    is retained as a one-minor-version compatibility alias (see module bottom).
+    """
 
     def __init__(self) -> None:
         self._config: dict[str, Any] = {}
@@ -432,7 +454,7 @@ class CouncilMemoryCoreProvider(MemoryProvider):
     def is_available(self) -> bool:
         """Cheap local readiness check: importable plus configured DB target.
 
-        This intentionally performs no network or Honcho calls and does not open
+        This intentionally performs no network or legacy import calls and does not open
         or create the SQLite database during provider discovery. Initialization is
         responsible for creating a missing local DB. Discovery fails closed only
         when Hermes has no active home, Mnemoir is not importable, or no DB target can
@@ -462,12 +484,11 @@ class CouncilMemoryCoreProvider(MemoryProvider):
             {"key": "db_path", "description": "Local Mnemoir Provenance SQLite DB path. Defaults to a profile-scoped path under HERMES_HOME.", "required": False},
             {"key": "mode", "description": "Runtime mode", "default": _DEFAULT_MODE, "choices": ["read_only", "proposal_only"]},
             {"key": "recall_mode", "description": "Recall exposure mode", "default": _DEFAULT_RECALL_MODE, "choices": ["context", "tools", "hybrid"]},
-            {"key": "sync_turn_policy", "description": "Completed-turn sync policy", "default": _DEFAULT_SYNC_TURN_POLICY, "choices": ["off", "audit_only", "proposal_only"]},
+            {"key": "sync_turn_policy", "description": "Completed-turn sync policy", "default": _DEFAULT_SYNC_TURN_POLICY, "choices": ["off", "audit_only", "propose_high_signal", "proposal_only"]},
             {"key": "writeback_mode", "description": "Real profile markdown overflow writeback posture", "default": _DEFAULT_WRITEBACK_MODE, "choices": ["disabled", "propose_only", "live_overflow_trim"]},
             {"key": "ingest_on_start", "description": "Whether to ingest configured sources on provider initialization", "default": "false", "choices": ["false"]},
             {"key": "controlled_profile_roots", "description": "Optional explicit controlled fixture roots allowed for read-only profile markdown ingestion. Live Hermes profile roots remain denied.", "required": False},
             {"key": "controlled_turn_roots", "description": "Optional explicit controlled fixture roots allowed for completed-turn proposal generation. Live Hermes profile roots remain denied.", "required": False},
-            {"key": "controlled_honcho_import_roots", "description": "Optional explicit controlled fixture roots allowed for Honcho legacy import dry runs. Live Honcho APIs and live Hermes profile roots remain denied.", "required": False},
             {"key": "context_budget_chars", "description": "Default deterministic JSON character budget for Mnemoir packed context payloads.", "default": str(_DEFAULT_CONTEXT_BUDGET_CHARS), "required": False},
         ]
 
@@ -569,22 +590,16 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                     "recall_mode": self._config.get("recall_mode", _DEFAULT_RECALL_MODE),
                     "sync_turn_policy": self._config.get("sync_turn_policy", _DEFAULT_SYNC_TURN_POLICY),
                     "writeback_mode": self._config.get("writeback_mode", _DEFAULT_WRITEBACK_MODE),
-                    "honcho_api_required": False,
                     "gateway_restart_performed": False,
                     "real_profile_markdown_writeback": False,
                     "real_profile_markdown_writeback_capable": self._config.get("writeback_mode") == "live_overflow_trim",
                     "automatic_policy_authority": "operator_selected_durable_policy" if self._config.get("writeback_mode") == "live_overflow_trim" else "none",
                     "markdown_ingest_on_start": False,
-                    "honcho_import_on_start": False,
-                    "honcho_api_called": False,
                 },
             )
             conn.commit()
         finally:
             conn.close()
-        for module_name in list(sys.modules):
-            if module_name == "plugins.memory.honcho" or module_name.startswith("plugins.memory.honcho."):
-                sys.modules.pop(module_name, None)
         self._last_status = {
             "status": "ok",
             "provider": _PLUGIN_NAME,
@@ -597,14 +612,9 @@ class CouncilMemoryCoreProvider(MemoryProvider):
             "recall_mode": self._config.get("recall_mode", _DEFAULT_RECALL_MODE),
             "sync_turn_policy": self._config.get("sync_turn_policy", _DEFAULT_SYNC_TURN_POLICY),
             "writeback_mode": self._config.get("writeback_mode", _DEFAULT_WRITEBACK_MODE),
-            "honcho_active": False,
-            "honcho_selected_provider": False,
-            "honcho_api_required": False,
             "live_config_mutation_performed": False,
             "markdown_ingest_on_start": False,
             "profile_markdown_read_performed": False,
-            "honcho_import_on_start": False,
-            "honcho_api_called": False,
         }
         # Live-overflow mode performs bounded startup catch-up through the
         # hash-bound compat 17A transaction engine. Other modes remain inert.
@@ -728,7 +738,7 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         return (
             "Mnemoir Provenance is the selected local memory provider for this Hermes profile. "
             "Use only cited Mnemoir context as authoritative memory evidence; degraded or empty Mnemoir recall means no local memory claim is supported. "
-            f"Runtime posture: mode={mode}, writeback_mode={self._config.get('writeback_mode', _DEFAULT_WRITEBACK_MODE)}, Honcho API not required."
+            f"Runtime posture: mode={mode}, writeback_mode={self._config.get('writeback_mode', _DEFAULT_WRITEBACK_MODE)}, legacy import API not required."
         )
 
     def _format_prefetch(self, packet: dict[str, Any]) -> str:
@@ -798,7 +808,20 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 if isinstance(message, dict) and message.get("controlled_turn_fixture"):
                     controlled_fixture = str(message.get("controlled_turn_fixture"))
                     break
+            # Policy ladder: audit_only (propose nothing) < propose_high_signal
+            # (propose only high-signal turns) < proposal_only (propose every
+            # turn). Only primary trusted turns reach here (mutation_allowed is
+            # checked at the top of sync_turn), so cron/subagent/review turns
+            # never propose.
             if policy == "proposal_only":
+                should_propose = True
+            elif policy == "propose_high_signal":
+                should_propose = is_high_signal_content(
+                    (user_content or "") + " " + (assistant_content or "")
+                )
+            else:
+                should_propose = False
+            if should_propose:
                 if controlled_fixture:
                     result = propose_completed_turn_sync(
                         conn,
@@ -826,7 +849,7 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 if live_overflow_audit_id is not None:
                     self._last_status["live_overflow_audit_id"] = live_overflow_audit_id
                 return
-            status = "proposal_required" if policy == "proposal_only" else "ok"
+            status = "ok"
             write_audit_event(
                 conn,
                 event_type="hermes.turn.sync",
@@ -853,10 +876,16 @@ class CouncilMemoryCoreProvider(MemoryProvider):
 
     def _tool_schemas_for_config(self) -> List[Dict[str, Any]]:
         recall_mode = self._config.get("recall_mode", _DEFAULT_RECALL_MODE)
-        schemas: list[dict[str, Any]] = []
+        base: list[dict[str, Any]] = []
         if recall_mode in {"tools", "hybrid"}:
-            schemas.extend([_CONTEXT_SCHEMA, _SEARCH_SCHEMA, _SOURCES_SCHEMA, _OVERFLOW_PRESSURE_SCHEMA, _OVERFLOW_PLAN_SCHEMA, _INGEST_PROFILE_SCHEMA, _SYNC_TURN_PROPOSAL_SCHEMA, _HONCHO_IMPORT_SCHEMA, _SESSION_SEARCH_IMPORT_SCHEMA, _OBSIDIAN_IMPORT_SCHEMA])
-        schemas.extend([_PROPOSE_SCHEMA, _WRITEBACK_STATUS_SCHEMA])
+            base.extend([_CONTEXT_SCHEMA, _SEARCH_SCHEMA, _SOURCES_SCHEMA, _OVERFLOW_PRESSURE_SCHEMA, _OVERFLOW_PLAN_SCHEMA, _INGEST_PROFILE_SCHEMA, _SYNC_TURN_PROPOSAL_SCHEMA, _SESSION_SEARCH_IMPORT_SCHEMA, _OBSIDIAN_IMPORT_SCHEMA])
+        base.extend([_PROPOSE_SCHEMA, _WRITEBACK_STATUS_SCHEMA])
+        schemas: list[dict[str, Any]] = []
+        for schema in base:
+            schemas.append(schema)
+            alias = _BASE_TO_ALIAS.get(schema["name"])
+            if alias is not None:
+                schemas.append(_alias_tool_schema(schema, alias))
         return schemas
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -872,7 +901,6 @@ class CouncilMemoryCoreProvider(MemoryProvider):
         deny_tools: list[str] | tuple[str, ...] | None = None,
         existing_tool_names: list[str] | tuple[str, ...] | None = None,
         builtin_memory_tool_names: list[str] | tuple[str, ...] = ("memory",),
-        honcho_tool_names: list[str] | tuple[str, ...] = ("honcho_profile", "honcho_search", "honcho_reasoning", "honcho_context", "honcho_conclude"),
     ) -> dict[str, Any]:
         """Return leak-safe memory-tool exposure status without provider side effects."""
         return evaluate_mnemoir_tool_gating(
@@ -886,11 +914,13 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 deny_tools=deny_tools,
                 existing_tool_names=existing_tool_names,
                 builtin_memory_tool_names=builtin_memory_tool_names,
-                honcho_tool_names=honcho_tool_names,
             )
         )
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs: Any) -> str:
+        # Public ``mnemoir_*`` aliases dispatch to the same handler as the
+        # legacy ``cmc_*`` tool; normalize once before the dispatch chain.
+        tool_name = _ALIAS_TO_BASE.get(tool_name, tool_name)
         if not self._execution_context.mutation_allowed:
             return _json_result(
                 {
@@ -917,10 +947,6 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                     "provider": _PLUGIN_NAME,
                     "selected_memory_provider": _PLUGIN_NAME,
                     "selected_provider_active": True,
-                    "honcho_active": False,
-                    "honcho_selected_provider": False,
-                    "honcho_api_required": False,
-                    "honcho_api_called": False,
                     "writeback_mode": self._config.get("writeback_mode", _DEFAULT_WRITEBACK_MODE),
                 })
                 return _json_result(status)
@@ -931,8 +957,6 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 status = overflow_pressure_status(self._agent_identity, fixture_root)
                 status.update({
                     "provider": _PLUGIN_NAME,
-                    "honcho_active": False,
-                    "honcho_api_required": False,
                     "real_profile_markdown_read": False,
                     "real_profile_markdown_writeback": False,
                 })
@@ -941,8 +965,6 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 plan = overflow_compaction_plan_status(conn, self._agent_identity)
                 plan.update({
                     "provider": _PLUGIN_NAME,
-                    "honcho_active": False,
-                    "honcho_api_required": False,
                     "real_profile_markdown_read": False,
                     "real_profile_markdown_writeback": False,
                     "file_mutation_performed": False,
@@ -961,8 +983,6 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 )
                 result.update({
                     "provider": _PLUGIN_NAME,
-                    "honcho_active": False,
-                    "honcho_api_required": False,
                     "real_profile_markdown_read": False,
                     "real_profile_markdown_writeback": False,
                     "file_mutation_performed": False,
@@ -996,30 +1016,6 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 )
                 result.update({"provider": _PLUGIN_NAME, "content_included": False, "path_redacted": True, "vault_absolute_paths_exposed": False, "live_config_mutation_performed": False})
                 return _json_result(result)
-            if tool_name == "cmc_import_honcho_legacy":
-                honcho_fixture_path = str(args.get("honcho_fixture_path") or "").strip()
-                if not honcho_fixture_path:
-                    return tool_error("honcho_fixture_path is required")
-                result = import_honcho_legacy_fixture(
-                    conn,
-                    profile_id=self._agent_identity,
-                    honcho_fixture_path=honcho_fixture_path,
-                    allowed_honcho_roots=self._config.get("controlled_honcho_import_roots") or [],
-                )
-                result.update({
-                    "provider": _PLUGIN_NAME,
-                    "honcho_active": False,
-                    "honcho_api_required": False,
-                    "honcho_api_called": False,
-                    "real_profile_markdown_read": False,
-                    "real_profile_markdown_writeback": False,
-                    "file_mutation_performed": False,
-                    "content_included": False,
-                    "path_redacted": True,
-                    "live_config_mutation_performed": False,
-                    "provider_activation_performed": False,
-                })
-                return _json_result(result)
             if tool_name == "cmc_ingest_profile_markdown":
                 profile_root = str(args.get("profile_root") or "").strip()
                 if not profile_root:
@@ -1032,8 +1028,6 @@ class CouncilMemoryCoreProvider(MemoryProvider):
                 )
                 result.update({
                     "provider": _PLUGIN_NAME,
-                    "honcho_active": False,
-                    "honcho_api_required": False,
                     "real_profile_markdown_read": False,
                     "real_profile_markdown_writeback": False,
                     "file_mutation_performed": False,
@@ -1184,4 +1178,10 @@ class CouncilMemoryCoreProvider(MemoryProvider):
 
 def register(ctx: Any) -> None:
     """Hermes plugin entrypoint."""
-    ctx.register_memory_provider(CouncilMemoryCoreProvider())
+    ctx.register_memory_provider(MnemoirProvenanceProvider())
+
+
+# One-minor-version compatibility alias. The class is named for the public
+# identity (Mnemoir Provenance); the historical ``CouncilMemoryCoreProvider``
+# name keeps resolving so existing imports do not break. Remove after 0.3.x.
+CouncilMemoryCoreProvider = MnemoirProvenanceProvider

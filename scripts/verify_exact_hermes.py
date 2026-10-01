@@ -75,8 +75,9 @@ def main() -> None:
             agent_context="primary",
         )
         schemas = manager.get_all_tool_schemas()
-        assert len(schemas) == 12
-        assert len({schema["name"] for schema in schemas}) == 12
+        # 0.3.0 exposes the 22-tool surface (11 cmc_* + 11 mnemoir_* aliases).
+        assert len(schemas) == 22
+        assert len({schema["name"] for schema in schemas}) == 22
         provider_block = provider.system_prompt_block()
         assert "selected local memory provider" in provider_block
         prefetch = provider.prefetch("empty exact-Hermes recall probe")

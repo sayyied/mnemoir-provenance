@@ -52,11 +52,11 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS sources (
   source_id TEXT PRIMARY KEY,
-  source_type TEXT NOT NULL CHECK (source_type IN ('hermes_state_db','hermes_profile_memory','hermes_markdown_overflow','honcho','session_search','obsidian_wiki','repo_docs','xbrain','council_core','file','api','manual','tool','system')),
+  source_type TEXT NOT NULL CHECK (source_type IN ('hermes_state_db','hermes_profile_memory','hermes_markdown_overflow','legacy_import','session_search','obsidian_wiki','repo_docs','xbrain','council_core','file','api','manual','tool','system')),
   display_name TEXT NOT NULL CHECK (length(display_name) > 0),
   external_ref TEXT,
   profile_id TEXT,
-  overflow_kind TEXT CHECK (overflow_kind IS NULL OR overflow_kind IN ('memory_md','user_md','honcho','session','wiki','repo','xbrain')),
+  overflow_kind TEXT CHECK (overflow_kind IS NULL OR overflow_kind IN ('memory_md','user_md','legacy','session','wiki','repo','xbrain')),
   read_authority TEXT NOT NULL DEFAULT 'none' CHECK (read_authority IN ('none','read_only','read_sensitive')),
   write_authority TEXT NOT NULL DEFAULT 'none' CHECK (write_authority IN ('none','propose_only','write_allowed')),
   authority_level TEXT NOT NULL DEFAULT 'secondary' CHECK (authority_level IN ('primary','secondary','derived','untrusted')),

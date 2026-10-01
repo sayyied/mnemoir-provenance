@@ -1,7 +1,7 @@
 """Controlled additional source adapters for compat 15-G11 / GAP-009.
 
 These adapters ingest only caller-supplied controlled fixtures. They never read
-live session_search databases, live Hermes profiles, Honcho APIs, or unrestricted
+live session_search databases, live Hermes profiles, legacy import APIs, or unrestricted
 Obsidian vaults, and status payloads expose hashes/counts/redacted pointers only.
 """
 
@@ -118,7 +118,6 @@ def _status_base(profile_id: str, surface: str) -> dict[str, Any]:
         "real_profile_markdown_read": False,
         "real_profile_markdown_writeback": False,
         "hermes_provider_config_mutated": False,
-        "honcho_api_called": False,
         "session_search_db_read": False,
         "vault_absolute_paths_exposed": False,
         "automatic_memory_promotion": False,
@@ -127,8 +126,14 @@ def _status_base(profile_id: str, surface: str) -> dict[str, Any]:
     }
 
 
-def _ensure_actor(conn: sqlite3.Connection, profile_id: str, actor_id: str | None) -> str:
+def _ensure_actor(conn: sqlite3.Connection, profile_id: str, actor_id: str | None = None) -> str:
     timestamp = now_utc()
+    existing = conn.execute(
+        "SELECT actor_id FROM actors WHERE kind='agent' AND profile_name=? AND is_active=1 ORDER BY actor_id LIMIT 1",
+        (profile_id,),
+    ).fetchone()
+    if existing:
+        return str(existing["actor_id"])
     resolved = actor_id or stable_id("actor", "hermes_profile", profile_id)
     conn.execute(
         """

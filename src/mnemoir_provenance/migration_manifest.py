@@ -2,8 +2,8 @@
 
 The helpers in this module are deliberately data-plane conservative: callers pass
 controlled/exported counts and import summaries, and the functions return only
-hashes/counts/verdicts. They do not acquire exports, call Honcho, read live Hermes
-profiles, mutate provider configuration, activate compat 15.2, delete Honcho data,
+hashes/counts/verdicts. They do not acquire exports, call a legacy memory API, read live Hermes
+profiles, mutate provider configuration, activate compat 15.2, delete legacy import data,
 or promote migrated rows into canonical memories.
 """
 
@@ -19,10 +19,10 @@ VERDICTS = ("PASS", "PARTIAL", "BLOCKED", "NO-GO")
 VERDICT_RANK = {"PASS": 0, "PARTIAL": 1, "BLOCKED": 2, "NO-GO": 3}
 
 REQUIRED_SOURCE_FAMILIES = (
-    "honcho_messages",
-    "honcho_conclusions_inferences",
-    "honcho_peer_cards",
-    "honcho_summaries",
+    "legacy_messages",
+    "legacy_conclusions_inferences",
+    "legacy_peer_cards",
+    "legacy_summaries",
     "hermes_memory_md",
     "hermes_user_md",
     "session_search_export",
@@ -32,8 +32,8 @@ REQUIRED_SOURCE_FAMILIES = (
 )
 
 SUPPORTED_SOURCE_FAMILIES = set(REQUIRED_SOURCE_FAMILIES) | {
-    "honcho_export",
-    "honcho_snapshot",
+    "legacy_export",
+    "legacy_snapshot",
     "council_profile_memory",
     "other_authorized_export",
 }
@@ -53,14 +53,14 @@ REQUIRED_ROW_KEYS = (
 
 _IMPORT_REQUIRED_TABLES = ("raw_events", "evidence_items", "provenance_edges")
 _FORBIDDEN_ACTION_FLAGS = {
-    "honcho_api_called",
+    "legacy_api_called",
     "live_profile_markdown_read",
     "live_profile_markdown_writeback",
     "live_config_mutation_performed",
     "gateway_restart_performed",
     "cron_systemd_autostart_mutated",
     "compat_15_2_activation_performed",
-    "honcho_deletion_performed",
+    "legacy_import_deletion_performed",
 }
 
 
@@ -182,11 +182,11 @@ def inventory_summary_to_manifest_rows(*, profile_id: str, inventory: dict[str, 
     rows: list[dict[str, Any]] = []
     for summary in inventory.get("source_summaries", []):
         family = str(summary.get("source_family") or "other_authorized_export")
-        if family == "pre_honcho_local_memory_file":
+        if family == "pre_legacy_local_memory_file":
             basename = summary.get("file_basename")
             family = "hermes_memory_md" if basename == "MEMORY.md" else "hermes_user_md" if basename == "USER.md" else "council_profile_memory"
-        elif family == "honcho_export_or_snapshot":
-            family = "honcho_export"
+        elif family == "legacy_export_or_snapshot":
+            family = "legacy_export"
         elif family == "controlled_markdown_vault_directory":
             family = "obsidian_vault_export"
         elif family == "generated_scale_fixture":
@@ -367,7 +367,7 @@ def manifest_no_leak_forbidden_scan(payloads: Iterable[Any]) -> dict[str, Any]:
         "compat151_private",
     )
     forbidden_phrases = (
-        "honcho deletion performed true",
+        "legacy deletion performed true",
         "compat 15.2 controlled activation performed true",
         "feature-complete replacement claim true",
         "silent canonical promotion true",
